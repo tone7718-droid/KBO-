@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "version": "2026-05-08",
+    "timezone": "Asia/Seoul",
+    "purpose": "자동 좌석 선점이나 자동 결제가 아닌 KBO 예매 시간 단축 보조용 규칙 파일",
+    "safetyNotice": "구단별 예매 오픈일과 예매처는 시즌, 멤버십 선예매, 이벤트 경기, 포스트시즌 여부에 따라 바뀔 수 있습니다. 실제 예매 전 구단 공지를 확인하세요."
+  },
+  "defaultRule": {
+    "openOffsetDays": 7,
+    "openTime": "11:00",
+    "certainty": "estimated",
+    "note": "기본값은 예매 보조용 추정값입니다. 정확한 값은 구단별 공지에 맞춰 수정하세요."
+  },
+  "teams": {
+    "LG": { "name": "LG 트윈스", "shortName": "LG", "stadium": "잠실야구장", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.lgtwins.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "DOOSAN": { "name": "두산 베어스", "shortName": "두산", "stadium": "잠실야구장", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.doosanbears.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "KIWOOM": { "name": "키움 히어로즈", "shortName": "키움", "stadium": "고척스카이돔", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.heroesbaseball.co.kr/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "SSG": { "name": "SSG 랜더스", "shortName": "SSG", "stadium": "인천 SSG 랜더스필드", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.ssglanders.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "KT": { "name": "KT 위즈", "shortName": "KT", "stadium": "수원 KT위즈파크", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.ktwiz.co.kr/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "KIA": { "name": "KIA 타이거즈", "shortName": "KIA", "stadium": "광주-기아 챔피언스 필드", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://tigers.co.kr/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "SAMSUNG": { "name": "삼성 라이온즈", "shortName": "삼성", "stadium": "대구 삼성라이온즈파크", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.samsunglions.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "HANWHA": { "name": "한화 이글스", "shortName": "한화", "stadium": "대전 한화생명 볼파크", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.hanwhaeagles.co.kr/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "LOTTE": { "name": "롯데 자이언츠", "shortName": "롯데", "stadium": "부산 사직야구장", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.giantsclub.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" },
+    "NC": { "name": "NC 다이노스", "shortName": "NC", "stadium": "창원 NC파크", "platform": "구단/예매처 공지 확인", "ticketUrl": "https://www.ncdinos.com/", "openOffsetDays": 7, "openTime": "11:00", "certainty": "estimated" }
+  }
+}
