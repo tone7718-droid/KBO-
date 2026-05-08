@@ -1,0 +1,13 @@
+[
+  {
+    "id": "sample-samsung-kia",
+    "date": "2026-05-24",
+    "time": "14:00",
+    "home": "SAMSUNG",
+    "away": "KIA",
+    "stadium": "대구 삼성라이온즈파크",
+    "ticketUrlOverride": "",
+    "seatMemo": "1순위: 1루 내야 / 2순위: 중앙 / 3순위: 외야",
+    "partySize": 2
+  }
+]
