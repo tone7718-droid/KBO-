@@ -1,0 +1,17 @@
+{
+  "name": "KBO 예매 보조",
+  "short_name": "KBO 예매",
+  "description": "KBO 경기 예매 오픈 시간을 놓치지 않도록 돕는 안전한 예매 보조 PWA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f8fb",
+  "theme_color": "#101828",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
