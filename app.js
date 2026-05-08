@@ -1,14 +1,13 @@
-const KEY_GAMES = 'kbo-ticket-helper.games.v1';
-const KEY_PREFS = 'kbo-ticket-helper.preferences.v1';
+const KEY_GAMES = 'kbo-ticket-helper.games.v2';
+const OLD_KEY_GAMES = 'kbo-ticket-helper.games.v1';
+const KEY_PREFS = 'kbo-ticket-helper.preferences.v2';
 const REMINDERS = [['30분 전', 30], ['10분 전', 10], ['5분 전', 5], ['1분 전', 1]];
+const SAMSUNG_CODE = 'SAMSUNG';
+const SAMSUNG_TICKET_URL = 'https://m.ticketlink.co.kr/sports/137/57';
 
 let rules;
 let games = [];
-let prefs = {
-  favoriteTeam: 'SAMSUNG',
-  defaultPartySize: 2,
-  defaultSeatMemo: '1순위: 1루 내야 / 2순위: 중앙 / 3순위: 외야'
-};
+let prefs = { seatMemo: '블루존 / 내야지정석 / 응원석 우선' };
 let timers = [];
 let renderTimer;
 
@@ -35,36 +34,23 @@ const getJson = async (url) => {
   if (!response.ok) throw new Error(`${url} 파일을 불러오지 못했습니다.`);
   return response.json();
 };
-const inputDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-const today = (offset = 0) => {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return inputDate(date);
-};
 const team = (code) => rules?.teams?.[code] || { name: code, shortName: code, stadium: '', ticketUrl: '' };
-const rule = (home) => {
-  const teamRule = team(home);
-  const defaultRule = rules.defaultRule;
-  return {
-    ...defaultRule,
-    ...teamRule,
-    openOffsetDays: Number(teamRule.openOffsetDays ?? defaultRule.openOffsetDays),
-    openTime: teamRule.openTime || defaultRule.openTime,
-    certainty: teamRule.certainty || defaultRule.certainty || 'estimated'
-  };
+const samsung = () => team(SAMSUNG_CODE);
+const opponentOptions = (selected = 'KIA') => Object.entries(rules.teams)
+  .filter(([code]) => code !== SAMSUNG_CODE)
+  .map(([code, item]) => `<option value="${esc(code)}" ${code === selected ? 'selected' : ''}>${esc(item.shortName || item.name)}</option>`)
+  .join('');
+const safeUrl = (value) => {
+  try {
+    const url = new URL(String(value || '').trim(), window.location.origin);
+    if (!['http:', 'https:'].includes(url.protocol)) return SAMSUNG_TICKET_URL;
+    return url.href;
+  } catch {
+    return SAMSUNG_TICKET_URL;
+  }
 };
-const openAt = (game) => {
-  const gameRule = rule(game.home);
-  if (!game.date || !gameRule.openTime) return null;
-  const date = new Date(`${game.date}T${gameRule.openTime}:00+09:00`);
-  date.setDate(date.getDate() - Number(gameRule.openOffsetDays || 0));
-  return date;
-};
-const isOpen = (game) => {
-  const date = openAt(game);
-  return Boolean(date && Date.now() >= date.getTime());
-};
-const fmt = (date) => date
+const urlFor = (game) => safeUrl(game.ticketUrlOverride || samsung().ticketUrl || SAMSUNG_TICKET_URL);
+const fmtDateTime = (date) => date
   ? new Intl.DateTimeFormat('ko-KR', {
       timeZone: 'Asia/Seoul',
       year: 'numeric',
@@ -74,9 +60,19 @@ const fmt = (date) => date
       hour: '2-digit',
       minute: '2-digit'
     }).format(date)
-  : '계산 불가';
-const left = (date) => {
-  if (!date) return '예매 시각 계산 불가';
+  : '직접 확인 필요';
+const openAt = (game) => {
+  if (game.ticketOpenAt) {
+    const explicitDate = new Date(game.ticketOpenAt);
+    if (!Number.isNaN(explicitDate.getTime())) return explicitDate;
+  }
+  const date = new Date(`${game.date}T11:00:00+09:00`);
+  date.setDate(date.getDate() - 9);
+  return date;
+};
+const gameAt = (game) => new Date(`${game.date}T${game.time || '18:30'}:00+09:00`);
+const isTicketOpen = (game) => Date.now() >= openAt(game).getTime();
+const remainingText = (date) => {
   const diff = date.getTime() - Date.now();
   const abs = Math.abs(diff);
   const day = Math.floor(abs / 864e5);
@@ -84,72 +80,59 @@ const left = (date) => {
   const min = Math.floor((abs % 36e5) / 6e4);
   const sec = Math.floor((abs % 6e4) / 1000);
   const text = `${day ? `${day}일 ` : ''}${hour ? `${hour}시간 ` : ''}${min}분 ${sec}초`;
-  if (diff <= 0) return abs < 18e5 ? '지금 예매 진입 시간' : `오픈 후 ${text} 지남`;
-  return `${text} 남음`;
+  return diff <= 0 ? `오픈됨 · ${text} 경과` : `${text} 남음`;
 };
-const status = (date) => {
-  if (!date) return ['확인 필요', 'muted'];
-  const diff = date.getTime() - Date.now();
-  if (diff <= 0 && Math.abs(diff) < 18e5) return ['예매 진입', 'live'];
-  if (diff <= 0) return ['오픈 완료', 'done'];
-  if (diff <= 30 * 6e4) return ['30분 이내', 'soon'];
-  if (diff <= 864e5) return ['오늘/내일', 'soon'];
-  return ['대기 중', 'wait'];
+const gameStatus = (game) => {
+  if (isTicketOpen(game)) return ['예매 가능', 'live'];
+  const diff = openAt(game).getTime() - Date.now();
+  if (diff <= 30 * 6e4) return ['곧 오픈', 'soon'];
+  return ['오픈 대기', 'wait'];
 };
-const options = (selected) => Object.entries(rules.teams)
-  .map(([code, item]) => `<option value="${esc(code)}" ${code === selected ? 'selected' : ''}>${esc(item.shortName || item.name)}</option>`)
-  .join('');
-const safeUrl = (value) => {
-  const fallback = 'https://www.koreabaseball.com/';
-  try {
-    const url = new URL(String(value || '').trim(), window.location.origin);
-    if (!['http:', 'https:'].includes(url.protocol)) return fallback;
-    return url.href;
-  } catch {
-    return fallback;
-  }
-};
-const urlFor = (game) => safeUrl((game.ticketUrlOverride || '').trim() || rule(game.home).ticketUrl || 'https://www.koreabaseball.com/');
-const sorted = () => [...games].sort((a, b) => (openAt(a)?.getTime() ?? 9e15) - (openAt(b)?.getTime() ?? 9e15));
+const sorted = () => [...games].sort((a, b) => gameAt(a).getTime() - gameAt(b).getTime());
+const normalizeGame = (game) => ({
+  id: game.id || crypto.randomUUID?.() || `game-${Date.now()}`,
+  date: game.date,
+  time: game.time || '17:00',
+  home: SAMSUNG_CODE,
+  away: game.away || 'KIA',
+  stadium: game.stadium || samsung().stadium || '대구 삼성라이온즈파크',
+  ticketOpenAt: game.ticketOpenAt || '',
+  ticketUrlOverride: game.ticketUrlOverride || SAMSUNG_TICKET_URL,
+  seatMemo: game.seatMemo || prefs.seatMemo
+});
 
 function render(shouldSchedule = false) {
   const list = sorted();
-  const next = list.find((game) => openAt(game) && openAt(game).getTime() > Date.now() - 18e5);
+  const primary = list.find((game) => gameAt(game).getTime() >= Date.now() - 4 * 36e5) || list[0];
   app.innerHTML = `
-    <header class="hero">
-      <p class="eyebrow">KBO 자동 예매가 아닌 정시 진입 보조</p>
-      <h1>11시 정각에<br>예매 버튼이 자동 활성화됩니다.</h1>
-      <p>홈팀 기준 예매처, 오픈 예상 시각, 인원, 좌석 선호, 캘린더 알림을 관리합니다. 앱 화면은 1초마다 갱신되며, 예매처에는 사용자가 직접 진입합니다.</p>
-      ${next ? focus(next) : ''}
+    <header class="hero samsungHero">
+      <div class="brandLine"><span class="mark">SL</span><span>Samsung Lions Ticket Helper</span></div>
+      <h1>삼성 홈경기 예매만<br>깔끔하게 준비합니다.</h1>
+      <p>대구 삼성라이온즈파크 홈경기 기준입니다. 인원 수는 티켓링크에 자동 입력하지 않으므로 제거했습니다. 핵심은 정확한 경기 시간, 예매 오픈 상태, 티켓링크 바로가기입니다.</p>
+      ${primary ? focus(primary) : ''}
     </header>
-    <main class="layout">
-      <section class="panel">
-        <p class="eyebrow">관심 경기 추가</p>
-        <h2>홈팀 기준으로 예매 시각 계산</h2>
+    <main class="layout samsungLayout">
+      <section class="panel compactPanel">
+        <div class="sectionTitle">
+          <p class="eyebrow">삼성 홈경기 추가</p>
+          <h2>KIA @ 삼성처럼 간단히 등록</h2>
+        </div>
         ${form()}
       </section>
-      <section class="panel">
+
+      <section class="panel listPanel">
         <div class="row">
           <div>
-            <p class="eyebrow">예매 카드</p>
-            <h2>${list.length}개 경기</h2>
+            <p class="eyebrow">예매 현황</p>
+            <h2>${list.length}개 삼성 홈경기</h2>
           </div>
-          <button class="ghost" data-action="permission">알림 권한</button>
+          <div class="rowActions">
+            <button class="ghost" data-action="permission">알림 권한</button>
+            <button class="ghost dangerGhost" data-action="reset">데이터 초기화</button>
+          </div>
         </div>
-        <div class="notice"><b>중요:</b> 삼성 홈경기 기본 예매 링크는 티켓링크 모바일 주소로 설정했습니다. 실제 경기별 상세 URL을 알고 있으면 직접 입력하세요.</div>
-        <div class="cards">${list.length ? list.map(card).join('') : '<p class="empty">아직 등록한 경기가 없습니다.</p>'}</div>
-      </section>
-      <section class="panel dark">
-        <p class="eyebrow">운영 원칙</p>
-        <h2>이 앱이 하지 않는 것</h2>
-        <div class="safety">
-          <span>CAPTCHA 우회 없음</span>
-          <span>좌석 자동 클릭 없음</span>
-          <span>자동 결제 없음</span>
-          <span>대기열 우회 없음</span>
-          <span>티켓링크 반복 요청 없음</span>
-          <span>계정 공유 없음</span>
-        </div>
+        <div class="notice"><b>수정:</b> 기존 잘못된 샘플 데이터는 제거했습니다. 2026.05.16 KIA @ 삼성은 17:00 시작, 현재 예매 가능 상태로 표시됩니다.</div>
+        <div class="cards">${list.length ? list.map(card).join('') : '<p class="empty">등록된 삼성 홈경기가 없습니다.</p>'}</div>
       </section>
     </main>`;
   bind();
@@ -157,70 +140,68 @@ function render(shouldSchedule = false) {
 }
 
 function focus(game) {
-  const home = team(game.home);
   const away = team(game.away);
-  const date = openAt(game);
-  const currentStatus = status(date);
+  const openDate = openAt(game);
+  const status = gameStatus(game);
+  const ticketButton = isTicketOpen(game)
+    ? `<a class="heroButton" href="${esc(urlFor(game))}" target="_blank" rel="noreferrer">티켓링크 바로가기</a>`
+    : `<button class="heroButton locked" data-action="locked" data-id="${esc(game.id)}">오픈 전 대기</button>`;
   return `
-    <div class="focus">
+    <div class="focus samsungFocus">
       <div>
-        <span class="badge ${currentStatus[1]}">${currentStatus[0]}</span>
-        <h2>${esc(home.shortName)} vs ${esc(away.shortName)}</h2>
-        <p>${esc(game.stadium || home.stadium)} · ${esc(game.date)} ${esc(game.time || '')}</p>
+        <span class="badge ${status[1]}">${status[0]}</span>
+        <h2>${esc(away.shortName)} @ 삼성</h2>
+        <p>${esc(game.date)} ${esc(game.time)} · ${esc(game.stadium)}</p>
       </div>
-      <div class="time">
-        <span>${fmt(date)}</span>
-        <strong>${left(date)}</strong>
+      <div class="time cleanTime">
+        <span>예매 오픈</span>
+        <strong>${fmtDateTime(openDate)}</strong>
+        <em>${remainingText(openDate)}</em>
+        ${ticketButton}
       </div>
     </div>`;
 }
 
 function form() {
   return `
-    <form id="game-form" class="game-form">
-      <label>경기일<input type="date" name="date" value="${today(8)}" required></label>
-      <label>경기 시간<input type="time" name="time" value="18:30" required></label>
-      <label>홈팀<select name="home">${options(prefs.favoriteTeam)}</select></label>
-      <label>원정팀<select name="away">${options('KIA')}</select></label>
-      <label>경기장<input name="stadium" placeholder="홈팀 기본 경기장 사용"></label>
-      <label>인원<input type="number" name="partySize" min="1" max="10" value="${prefs.defaultPartySize}"></label>
-      <label class="wide">좌석 선호 메모<input name="seatMemo" value="${esc(prefs.defaultSeatMemo)}"></label>
-      <label class="wide">경기별 예매 URL 직접 입력<input type="url" name="ticketUrlOverride" placeholder="정확한 링크를 알고 있으면 붙여넣기"></label>
-      <button class="primary wide">관심 경기 추가</button>
+    <form id="game-form" class="game-form samsungForm">
+      <label>경기일<input type="date" name="date" value="2026-05-16" required></label>
+      <label>시작 시간<input type="time" name="time" value="17:00" required></label>
+      <label>상대팀<select name="away">${opponentOptions('KIA')}</select></label>
+      <label>예매 오픈 시각<input type="datetime-local" name="ticketOpenAt" value="2026-05-07T11:00"></label>
+      <label class="wide">좌석 메모<input name="seatMemo" value="${esc(prefs.seatMemo)}"></label>
+      <label class="wide">티켓링크 URL<input type="url" name="ticketUrlOverride" value="${SAMSUNG_TICKET_URL}"></label>
+      <button class="primary wide">삼성 홈경기 추가</button>
     </form>`;
 }
 
 function card(game) {
-  const home = team(game.home);
   const away = team(game.away);
-  const gameRule = rule(game.home);
-  const date = openAt(game);
-  const currentStatus = status(date);
-  const opened = isOpen(game);
-  const ticketButton = opened
+  const openDate = openAt(game);
+  const status = gameStatus(game);
+  const ticketButton = isTicketOpen(game)
     ? `<a class="primary liveLink" href="${esc(urlFor(game))}" target="_blank" rel="noreferrer">예매 바로가기</a>`
-    : `<button class="primary disabled" type="button" data-action="locked" data-id="${esc(game.id)}">${esc(gameRule.openTime)} 자동 활성화 대기</button>`;
-  const certaintyText = gameRule.certainty === 'confirmed' || gameRule.certainty === 'confirmed-link' ? '링크 확인' : '추정';
+    : `<button class="primary disabled" type="button" data-action="locked" data-id="${esc(game.id)}">오픈 전 대기</button>`;
   return `
-    <article class="card">
+    <article class="card samsungCard">
       <div class="cardTop">
         <div>
-          <span class="badge ${currentStatus[1]}">${currentStatus[0]}</span>
-          <h3>${esc(home.shortName)} vs ${esc(away.shortName)}</h3>
-          <p>${esc(game.stadium || home.stadium)} · ${esc(game.date)} ${esc(game.time || '')}</p>
+          <span class="badge ${status[1]}">${status[0]}</span>
+          <h3>${esc(away.shortName)} @ 삼성</h3>
+          <p>${esc(game.date)} ${esc(game.time)} · ${esc(game.stadium)}</p>
         </div>
         <button class="x" data-action="delete" data-id="${esc(game.id)}">×</button>
       </div>
       <dl>
-        <div><dt>예매 오픈</dt><dd>${fmt(date)}</dd></div>
-        <div><dt>남은 시간</dt><dd class="tick">${left(date)}</dd></div>
-        <div><dt>예매처</dt><dd>${esc(gameRule.platform || '확인 필요')} · ${certaintyText}</dd></div>
-        <div><dt>인원/좌석</dt><dd>${esc(game.partySize || prefs.defaultPartySize)}명 · ${esc(game.seatMemo || prefs.defaultSeatMemo)}</dd></div>
+        <div><dt>예매 오픈</dt><dd>${fmtDateTime(openDate)}</dd></div>
+        <div><dt>상태</dt><dd class="tick">${remainingText(openDate)}</dd></div>
+        <div><dt>예매처</dt><dd>티켓링크 모바일</dd></div>
+        <div><dt>좌석 메모</dt><dd>${esc(game.seatMemo || prefs.seatMemo)}</dd></div>
       </dl>
       <div class="buttons">
         ${ticketButton}
         <button class="secondary" data-action="ics" data-id="${esc(game.id)}">캘린더 추가</button>
-        <button class="secondary" data-action="schedule" data-id="${esc(game.id)}">앱 알림 예약</button>
+        <button class="secondary" data-action="schedule" data-id="${esc(game.id)}">앱 알림</button>
         <button class="ghost" data-action="copy" data-id="${esc(game.id)}">메모 복사</button>
       </div>
     </article>`;
@@ -230,28 +211,24 @@ function bind() {
   document.querySelector('#game-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
-    const home = formData.get('home');
-    const away = formData.get('away');
-    if (home === away) return toast('홈팀과 원정팀이 같습니다.');
-    const homeTeam = team(home);
-    const game = {
+    const ticketOpenAt = formData.get('ticketOpenAt')
+      ? `${formData.get('ticketOpenAt')}:00+09:00`
+      : '';
+    const game = normalizeGame({
       id: crypto.randomUUID?.() || `game-${Date.now()}`,
       date: formData.get('date'),
       time: formData.get('time'),
-      home,
-      away,
-      stadium: formData.get('stadium') || homeTeam.stadium,
-      partySize: Number(formData.get('partySize') || 2),
-      seatMemo: formData.get('seatMemo') || prefs.defaultSeatMemo,
-      ticketUrlOverride: formData.get('ticketUrlOverride') || ''
-    };
-    prefs.favoriteTeam = home;
-    prefs.defaultPartySize = game.partySize;
-    prefs.defaultSeatMemo = game.seatMemo;
+      away: formData.get('away'),
+      stadium: samsung().stadium || '대구 삼성라이온즈파크',
+      ticketOpenAt,
+      ticketUrlOverride: formData.get('ticketUrlOverride') || SAMSUNG_TICKET_URL,
+      seatMemo: formData.get('seatMemo') || prefs.seatMemo
+    });
+    prefs.seatMemo = game.seatMemo;
     games.push(game);
     save();
     render(true);
-    toast('관심 경기를 추가했습니다.');
+    toast('삼성 홈경기를 추가했습니다.');
   });
 
   document.querySelectorAll('[data-action]').forEach((element) => element.addEventListener('click', async (event) => {
@@ -259,7 +236,16 @@ function bind() {
     const id = event.currentTarget.dataset.id;
     const game = games.find((item) => item.id === id);
     if (action === 'permission') await permission();
-    if (action === 'locked' && game) toast(`${fmt(openAt(game))}부터 예매 바로가기 버튼이 자동 활성화됩니다.`);
+    if (action === 'locked' && game) toast(`${fmtDateTime(openAt(game))}부터 예매 버튼이 활성화됩니다.`);
+    if (action === 'reset') {
+      localStorage.removeItem(KEY_GAMES);
+      localStorage.removeItem(OLD_KEY_GAMES);
+      games = await getJson('/data/games.sample.json');
+      games = games.map(normalizeGame);
+      save();
+      render(true);
+      toast('잘못된 로컬 데이터를 초기화했습니다.');
+    }
     if (action === 'delete' && game) {
       games = games.filter((item) => item.id !== id);
       save();
@@ -288,9 +274,9 @@ async function permission() {
     toast('브라우저 설정에서 알림 차단을 해제해야 합니다.');
     return false;
   }
-  const permissionResult = await Notification.requestPermission();
-  toast(permissionResult === 'granted' ? '알림 권한이 허용되었습니다.' : '알림 권한이 허용되지 않았습니다.');
-  return permissionResult === 'granted';
+  const result = await Notification.requestPermission();
+  toast(result === 'granted' ? '알림 권한이 허용되었습니다.' : '알림 권한이 허용되지 않았습니다.');
+  return result === 'granted';
 }
 
 function scheduleAll() {
@@ -306,24 +292,19 @@ function schedule(game, show) {
     return;
   }
   const date = openAt(game);
-  if (!date) {
-    if (show) toast('예매 오픈 시각을 계산할 수 없습니다.');
-    return;
-  }
-  const home = team(game.home);
   const away = team(game.away);
   const made = [];
   REMINDERS.forEach(([label, min]) => {
     const delay = date.getTime() - min * 6e4 - Date.now();
     if (delay <= 0 || delay > 21 * 864e5) return;
-    timers.push(setTimeout(() => new Notification(`KBO 예매 ${label}: ${home.shortName} vs ${away.shortName}`, {
-      body: `${fmt(date)} 오픈 예상 · ${game.partySize || prefs.defaultPartySize}명 · ${game.seatMemo || prefs.defaultSeatMemo}`,
+    timers.push(setTimeout(() => new Notification(`삼성 예매 ${label}: ${away.shortName}전`, {
+      body: `${fmtDateTime(date)} 오픈 · ${game.seatMemo || prefs.seatMemo}`,
       icon: '/icons/icon.svg',
-      tag: `kbo-${game.id}-${min}`
+      tag: `samsung-${game.id}-${min}`
     }), delay));
     made.push(label);
   });
-  if (show) toast(made.length ? `${made.join(', ')} 알림을 예약했습니다. 앱이 열려 있어야 작동합니다.` : '예약 가능한 미래 알림이 없습니다. 캘린더 추가를 권장합니다.');
+  if (show) toast(made.length ? `${made.join(', ')} 알림을 예약했습니다.` : '이미 예매가 열려 있어 예약할 미래 알림이 없습니다.');
 }
 
 const icsTime = (date) => `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}00`;
@@ -335,15 +316,12 @@ const icsEsc = (value) => String(value)
 
 function downloadIcs(game) {
   const date = openAt(game);
-  if (!date) return toast('예매 오픈 시각을 계산할 수 없습니다.');
   const end = new Date(date.getTime() + 15 * 6e4);
-  const home = team(game.home);
   const away = team(game.away);
-  const summary = `KBO 예매 시작: ${home.shortName} vs ${away.shortName}`;
+  const summary = `삼성 예매 시작: ${away.shortName}전`;
   const desc = [
     `예매처: ${urlFor(game)}`,
-    `인원: ${game.partySize || prefs.defaultPartySize}명`,
-    `좌석 선호: ${game.seatMemo || prefs.defaultSeatMemo}`,
+    `좌석 메모: ${game.seatMemo || prefs.seatMemo}`,
     '주의: 자동 예매가 아니라 정시 진입 보조 알림입니다.'
   ].join('\n');
   const alarms = REMINDERS.flatMap(([label, min]) => [
@@ -356,15 +334,15 @@ function downloadIcs(game) {
   const ics = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//KBO Ticket Helper//KO',
+    'PRODID:-//Samsung Lions Ticket Helper//KO',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
-    `UID:${game.id}@kbo-ticket-helper`,
+    `UID:${game.id}@samsung-lions-ticket-helper`,
     `DTSTAMP:${icsTime(new Date())}`,
     `DTSTART;TZID=Asia/Seoul:${icsTime(date)}`,
     `DTEND;TZID=Asia/Seoul:${icsTime(end)}`,
     `SUMMARY:${icsEsc(summary)}`,
-    `LOCATION:${icsEsc(game.stadium || home.stadium)}`,
+    `LOCATION:${icsEsc(game.stadium)}`,
     `DESCRIPTION:${icsEsc(desc)}`,
     `URL:${icsEsc(urlFor(game))}`,
     ...alarms,
@@ -375,23 +353,20 @@ function downloadIcs(game) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `kbo-ticket-${game.date}-${home.shortName}-vs-${away.shortName}.ics`;
+  link.download = `samsung-ticket-${game.date}-${away.shortName}.ics`;
   link.click();
   URL.revokeObjectURL(url);
-  toast('30/10/5/1분 캘린더 알림 파일을 만들었습니다.');
+  toast('캘린더 알림 파일을 만들었습니다.');
 }
 
 async function copyMemo(game) {
-  const home = team(game.home);
   const away = team(game.away);
   const memo = [
-    `[KBO 예매 준비] ${home.name} vs ${away.name}`,
-    `경기: ${game.date} ${game.time} / ${game.stadium || home.stadium}`,
-    `예매 오픈 예상: ${fmt(openAt(game))}`,
+    `[삼성 예매 준비] ${away.name} @ 삼성 라이온즈`,
+    `경기: ${game.date} ${game.time} / ${game.stadium}`,
+    `예매 오픈: ${fmtDateTime(openAt(game))}`,
     `예매처: ${urlFor(game)}`,
-    `인원: ${game.partySize || prefs.defaultPartySize}명`,
-    `좌석 선호: ${game.seatMemo || prefs.defaultSeatMemo}`,
-    '주의: 좌석 자동 선점/결제 없이 직접 예매'
+    `좌석 메모: ${game.seatMemo || prefs.seatMemo}`
   ].join('\n');
   try {
     await navigator.clipboard.writeText(memo);
@@ -414,15 +389,12 @@ async function init() {
   try {
     rules = await getJson('/data/ticket_rules.json');
     prefs = { ...prefs, ...load(KEY_PREFS, {}) };
-    games = load(KEY_GAMES, []);
-    if (!games.length) {
-      games = (await getJson('/data/games.sample.json')).map((game) => ({
-        ...game,
-        id: game.id || `sample-${Date.now()}`,
-        date: today(8)
-      }));
-      save();
-    }
+    const oldGames = load(OLD_KEY_GAMES, []);
+    const newGames = load(KEY_GAMES, []);
+    games = newGames.length ? newGames : oldGames.filter((game) => game.id !== 'sample-samsung-kia');
+    if (!games.length) games = await getJson('/data/games.sample.json');
+    games = games.map(normalizeGame);
+    save();
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
     render(true);
     renderTimer = setInterval(() => render(false), 1000);
