@@ -7,7 +7,8 @@
     "away": "KIA",
     "stadium": "대구 삼성라이온즈파크",
     "ticketOpenAt": "2026-05-07T11:00:00+09:00",
-    "ticketUrlOverride": "https://m.ticketlink.co.kr/sports/137/57",
+    "teamPageUrl": "https://m.ticketlink.co.kr/sports/137/57",
+    "directUrl": "",
     "seatMemo": "블루존 / 내야지정석 / 응원석 우선"
   }
 ]
