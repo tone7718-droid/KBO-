@@ -1,9 +1,10 @@
-const KEY_GAMES = 'kbo-ticket-helper.games.v2';
-const OLD_KEY_GAMES = 'kbo-ticket-helper.games.v1';
-const KEY_PREFS = 'kbo-ticket-helper.preferences.v2';
+const KEY_GAMES = 'kbo-ticket-helper.games.v3';
+const OLD_KEY_GAMES_V2 = 'kbo-ticket-helper.games.v2';
+const OLD_KEY_GAMES_V1 = 'kbo-ticket-helper.games.v1';
+const KEY_PREFS = 'kbo-ticket-helper.preferences.v3';
 const REMINDERS = [['30분 전', 30], ['10분 전', 10], ['5분 전', 5], ['1분 전', 1]];
 const SAMSUNG_CODE = 'SAMSUNG';
-const SAMSUNG_TICKET_URL = 'https://m.ticketlink.co.kr/sports/137/57';
+const SAMSUNG_TEAM_PAGE_URL = 'https://m.ticketlink.co.kr/sports/137/57';
 
 let rules;
 let games = [];
@@ -40,16 +41,20 @@ const opponentOptions = (selected = 'KIA') => Object.entries(rules.teams)
   .filter(([code]) => code !== SAMSUNG_CODE)
   .map(([code, item]) => `<option value="${esc(code)}" ${code === selected ? 'selected' : ''}>${esc(item.shortName || item.name)}</option>`)
   .join('');
-const safeUrl = (value) => {
+const safeUrlOrEmpty = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
   try {
-    const url = new URL(String(value || '').trim(), window.location.origin);
-    if (!['http:', 'https:'].includes(url.protocol)) return SAMSUNG_TICKET_URL;
+    const url = new URL(raw, window.location.origin);
+    if (!['http:', 'https:'].includes(url.protocol)) return '';
     return url.href;
   } catch {
-    return SAMSUNG_TICKET_URL;
+    return '';
   }
 };
-const urlFor = (game) => safeUrl(game.ticketUrlOverride || samsung().ticketUrl || SAMSUNG_TICKET_URL);
+const teamPageUrlFor = (game) => safeUrlOrEmpty(game.teamPageUrl || samsung().ticketUrl || SAMSUNG_TEAM_PAGE_URL) || SAMSUNG_TEAM_PAGE_URL;
+const directUrlFor = (game) => safeUrlOrEmpty(game.directUrl || '');
+const hasDirectUrl = (game) => Boolean(directUrlFor(game));
 const fmtDateTime = (date) => date
   ? new Intl.DateTimeFormat('ko-KR', {
       timeZone: 'Asia/Seoul',
@@ -83,7 +88,8 @@ const remainingText = (date) => {
   return diff <= 0 ? `오픈됨 · ${text} 경과` : `${text} 남음`;
 };
 const gameStatus = (game) => {
-  if (isTicketOpen(game)) return ['예매 가능', 'live'];
+  if (isTicketOpen(game) && hasDirectUrl(game)) return ['직행 가능', 'live'];
+  if (isTicketOpen(game)) return ['직행 URL 필요', 'need'];
   const diff = openAt(game).getTime() - Date.now();
   if (diff <= 30 * 6e4) return ['곧 오픈', 'soon'];
   return ['오픈 대기', 'wait'];
@@ -97,7 +103,8 @@ const normalizeGame = (game) => ({
   away: game.away || 'KIA',
   stadium: game.stadium || samsung().stadium || '대구 삼성라이온즈파크',
   ticketOpenAt: game.ticketOpenAt || '',
-  ticketUrlOverride: game.ticketUrlOverride || SAMSUNG_TICKET_URL,
+  teamPageUrl: game.teamPageUrl || game.ticketUrlOverride || SAMSUNG_TEAM_PAGE_URL,
+  directUrl: game.directUrl || '',
   seatMemo: game.seatMemo || prefs.seatMemo
 });
 
@@ -107,15 +114,15 @@ function render(shouldSchedule = false) {
   app.innerHTML = `
     <header class="hero samsungHero">
       <div class="brandLine"><span class="mark">SL</span><span>Samsung Lions Ticket Helper</span></div>
-      <h1>삼성 홈경기 예매만<br>깔끔하게 준비합니다.</h1>
-      <p>대구 삼성라이온즈파크 홈경기 기준입니다. 인원 수는 티켓링크에 자동 입력하지 않으므로 제거했습니다. 핵심은 정확한 경기 시간, 예매 오픈 상태, 티켓링크 바로가기입니다.</p>
+      <h1>팀 페이지가 아니라<br>경기 직행 링크로 갑니다.</h1>
+      <p>삼성 팀 페이지 링크와 경기별 직행 링크를 분리했습니다. 빨간 메인 버튼은 경기별 직행 URL이 있을 때만 활성화됩니다.</p>
       ${primary ? focus(primary) : ''}
     </header>
     <main class="layout samsungLayout">
       <section class="panel compactPanel">
         <div class="sectionTitle">
           <p class="eyebrow">삼성 홈경기 추가</p>
-          <h2>KIA @ 삼성처럼 간단히 등록</h2>
+          <h2>경기별 직행 URL을 따로 저장</h2>
         </div>
         ${form()}
       </section>
@@ -131,7 +138,7 @@ function render(shouldSchedule = false) {
             <button class="ghost dangerGhost" data-action="reset">데이터 초기화</button>
           </div>
         </div>
-        <div class="notice"><b>수정:</b> 기존 잘못된 샘플 데이터는 제거했습니다. 2026.05.16 KIA @ 삼성은 17:00 시작, 현재 예매 가능 상태로 표시됩니다.</div>
+        <div class="notice"><b>중요:</b> <code>${SAMSUNG_TEAM_PAGE_URL}</code>는 삼성 팀 페이지입니다. 메인 예매 버튼은 이 주소로 이동하지 않습니다. 경기별 예매하기를 눌렀을 때 도착하는 직행 URL을 입력해야 합니다.</div>
         <div class="cards">${list.length ? list.map(card).join('') : '<p class="empty">등록된 삼성 홈경기가 없습니다.</p>'}</div>
       </section>
     </main>`;
@@ -143,9 +150,10 @@ function focus(game) {
   const away = team(game.away);
   const openDate = openAt(game);
   const status = gameStatus(game);
-  const ticketButton = isTicketOpen(game)
-    ? `<a class="heroButton" href="${esc(urlFor(game))}" target="_blank" rel="noreferrer">티켓링크 바로가기</a>`
-    : `<button class="heroButton locked" data-action="locked" data-id="${esc(game.id)}">오픈 전 대기</button>`;
+  const directUrl = directUrlFor(game);
+  const mainButton = isTicketOpen(game) && directUrl
+    ? `<a class="heroButton" href="${esc(directUrl)}" target="_blank" rel="noreferrer">경기 예매 직행</a>`
+    : `<button class="heroButton locked" data-action="missingDirect" data-id="${esc(game.id)}">직행 URL 입력 필요</button>`;
   return `
     <div class="focus samsungFocus">
       <div>
@@ -157,7 +165,8 @@ function focus(game) {
         <span>예매 오픈</span>
         <strong>${fmtDateTime(openDate)}</strong>
         <em>${remainingText(openDate)}</em>
-        ${ticketButton}
+        ${mainButton}
+        <a class="subLink" href="${esc(teamPageUrlFor(game))}" target="_blank" rel="noreferrer">삼성 팀 페이지 열기</a>
       </div>
     </div>`;
 }
@@ -169,8 +178,9 @@ function form() {
       <label>시작 시간<input type="time" name="time" value="17:00" required></label>
       <label>상대팀<select name="away">${opponentOptions('KIA')}</select></label>
       <label>예매 오픈 시각<input type="datetime-local" name="ticketOpenAt" value="2026-05-07T11:00"></label>
+      <label class="wide">경기별 직행 URL<input type="url" name="directUrl" placeholder="예매하기 버튼을 눌렀을 때 열린 최종 URL을 붙여넣기"></label>
+      <label class="wide">삼성 팀 페이지<input type="url" name="teamPageUrl" value="${SAMSUNG_TEAM_PAGE_URL}"></label>
       <label class="wide">좌석 메모<input name="seatMemo" value="${esc(prefs.seatMemo)}"></label>
-      <label class="wide">티켓링크 URL<input type="url" name="ticketUrlOverride" value="${SAMSUNG_TICKET_URL}"></label>
       <button class="primary wide">삼성 홈경기 추가</button>
     </form>`;
 }
@@ -179,9 +189,10 @@ function card(game) {
   const away = team(game.away);
   const openDate = openAt(game);
   const status = gameStatus(game);
-  const ticketButton = isTicketOpen(game)
-    ? `<a class="primary liveLink" href="${esc(urlFor(game))}" target="_blank" rel="noreferrer">예매 바로가기</a>`
-    : `<button class="primary disabled" type="button" data-action="locked" data-id="${esc(game.id)}">오픈 전 대기</button>`;
+  const directUrl = directUrlFor(game);
+  const ticketButton = isTicketOpen(game) && directUrl
+    ? `<a class="primary liveLink" href="${esc(directUrl)}" target="_blank" rel="noreferrer">경기 예매 직행</a>`
+    : `<button class="primary disabled" type="button" data-action="missingDirect" data-id="${esc(game.id)}">직행 URL 입력 필요</button>`;
   return `
     <article class="card samsungCard">
       <div class="cardTop">
@@ -195,14 +206,14 @@ function card(game) {
       <dl>
         <div><dt>예매 오픈</dt><dd>${fmtDateTime(openDate)}</dd></div>
         <div><dt>상태</dt><dd class="tick">${remainingText(openDate)}</dd></div>
-        <div><dt>예매처</dt><dd>티켓링크 모바일</dd></div>
+        <div><dt>직행 URL</dt><dd>${directUrl ? '입력됨' : '미입력'}</dd></div>
         <div><dt>좌석 메모</dt><dd>${esc(game.seatMemo || prefs.seatMemo)}</dd></div>
       </dl>
       <div class="buttons">
         ${ticketButton}
-        <button class="secondary" data-action="ics" data-id="${esc(game.id)}">캘린더 추가</button>
-        <button class="secondary" data-action="schedule" data-id="${esc(game.id)}">앱 알림</button>
-        <button class="ghost" data-action="copy" data-id="${esc(game.id)}">메모 복사</button>
+        <a class="secondary" href="${esc(teamPageUrlFor(game))}" target="_blank" rel="noreferrer">팀 페이지</a>
+        <button class="secondary" data-action="ics" data-id="${esc(game.id)}">캘린더</button>
+        <button class="ghost" data-action="copy" data-id="${esc(game.id)}">메모</button>
       </div>
     </article>`;
 }
@@ -221,7 +232,8 @@ function bind() {
       away: formData.get('away'),
       stadium: samsung().stadium || '대구 삼성라이온즈파크',
       ticketOpenAt,
-      ticketUrlOverride: formData.get('ticketUrlOverride') || SAMSUNG_TICKET_URL,
+      directUrl: formData.get('directUrl') || '',
+      teamPageUrl: formData.get('teamPageUrl') || SAMSUNG_TEAM_PAGE_URL,
       seatMemo: formData.get('seatMemo') || prefs.seatMemo
     });
     prefs.seatMemo = game.seatMemo;
@@ -236,15 +248,16 @@ function bind() {
     const id = event.currentTarget.dataset.id;
     const game = games.find((item) => item.id === id);
     if (action === 'permission') await permission();
-    if (action === 'locked' && game) toast(`${fmtDateTime(openAt(game))}부터 예매 버튼이 활성화됩니다.`);
+    if (action === 'missingDirect') toast('팀 페이지가 아니라 경기별 예매 직행 URL을 입력해야 합니다.');
     if (action === 'reset') {
       localStorage.removeItem(KEY_GAMES);
-      localStorage.removeItem(OLD_KEY_GAMES);
+      localStorage.removeItem(OLD_KEY_GAMES_V2);
+      localStorage.removeItem(OLD_KEY_GAMES_V1);
       games = await getJson('/data/games.sample.json');
       games = games.map(normalizeGame);
       save();
       render(true);
-      toast('잘못된 로컬 데이터를 초기화했습니다.');
+      toast('로컬 데이터를 초기화했습니다.');
     }
     if (action === 'delete' && game) {
       games = games.filter((item) => item.id !== id);
@@ -298,7 +311,7 @@ function schedule(game, show) {
     const delay = date.getTime() - min * 6e4 - Date.now();
     if (delay <= 0 || delay > 21 * 864e5) return;
     timers.push(setTimeout(() => new Notification(`삼성 예매 ${label}: ${away.shortName}전`, {
-      body: `${fmtDateTime(date)} 오픈 · ${game.seatMemo || prefs.seatMemo}`,
+      body: `${fmtDateTime(date)} 오픈 · 직행 URL ${hasDirectUrl(game) ? '입력됨' : '미입력'}`,
       icon: '/icons/icon.svg',
       tag: `samsung-${game.id}-${min}`
     }), delay));
@@ -318,11 +331,13 @@ function downloadIcs(game) {
   const date = openAt(game);
   const end = new Date(date.getTime() + 15 * 6e4);
   const away = team(game.away);
+  const directUrl = directUrlFor(game);
   const summary = `삼성 예매 시작: ${away.shortName}전`;
   const desc = [
-    `예매처: ${urlFor(game)}`,
+    `경기 직행 URL: ${directUrl || '미입력'}`,
+    `삼성 팀 페이지: ${teamPageUrlFor(game)}`,
     `좌석 메모: ${game.seatMemo || prefs.seatMemo}`,
-    '주의: 자동 예매가 아니라 정시 진입 보조 알림입니다.'
+    '주의: 자동 예매가 아니라 직행 링크 진입 보조 알림입니다.'
   ].join('\n');
   const alarms = REMINDERS.flatMap(([label, min]) => [
     'BEGIN:VALARM',
@@ -344,7 +359,7 @@ function downloadIcs(game) {
     `SUMMARY:${icsEsc(summary)}`,
     `LOCATION:${icsEsc(game.stadium)}`,
     `DESCRIPTION:${icsEsc(desc)}`,
-    `URL:${icsEsc(urlFor(game))}`,
+    `URL:${icsEsc(directUrl || teamPageUrlFor(game))}`,
     ...alarms,
     'END:VEVENT',
     'END:VCALENDAR'
@@ -361,11 +376,13 @@ function downloadIcs(game) {
 
 async function copyMemo(game) {
   const away = team(game.away);
+  const directUrl = directUrlFor(game);
   const memo = [
     `[삼성 예매 준비] ${away.name} @ 삼성 라이온즈`,
     `경기: ${game.date} ${game.time} / ${game.stadium}`,
     `예매 오픈: ${fmtDateTime(openAt(game))}`,
-    `예매처: ${urlFor(game)}`,
+    `경기 직행 URL: ${directUrl || '미입력'}`,
+    `삼성 팀 페이지: ${teamPageUrlFor(game)}`,
     `좌석 메모: ${game.seatMemo || prefs.seatMemo}`
   ].join('\n');
   try {
@@ -389,9 +406,10 @@ async function init() {
   try {
     rules = await getJson('/data/ticket_rules.json');
     prefs = { ...prefs, ...load(KEY_PREFS, {}) };
-    const oldGames = load(OLD_KEY_GAMES, []);
-    const newGames = load(KEY_GAMES, []);
-    games = newGames.length ? newGames : oldGames.filter((game) => game.id !== 'sample-samsung-kia');
+    const v3Games = load(KEY_GAMES, []);
+    const v2Games = load(OLD_KEY_GAMES_V2, []);
+    const v1Games = load(OLD_KEY_GAMES_V1, []);
+    games = v3Games.length ? v3Games : v2Games.length ? v2Games : v1Games.filter((game) => game.id !== 'sample-samsung-kia');
     if (!games.length) games = await getJson('/data/games.sample.json');
     games = games.map(normalizeGame);
     save();
