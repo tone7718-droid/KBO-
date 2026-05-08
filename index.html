@@ -206,13 +206,16 @@
     background: var(--accent);
     color: #ffffff;
     font-family: inherit;
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    padding: 22px 24px;
+    letter-spacing: 0.02em;
+    padding: 20px 22px;
     border-radius: 12px;
     transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
     box-shadow: 0 10px 30px -10px var(--accent);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    text-align: left;
   }
 
   .booking-btn:hover {
@@ -220,17 +223,26 @@
     transform: translateY(-2px);
   }
 
-  .booking-btn:active {
-    transform: translateY(0);
-  }
+  .booking-btn:active { transform: translateY(0); }
 
-  .booking-btn .team {
-    display: block;
+  .booking-btn .btn-date {
     font-size: 13px;
     font-weight: 500;
+    opacity: 0.9;
+    letter-spacing: 0.08em;
+  }
+
+  .booking-btn .btn-cta {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .booking-btn .btn-meta {
+    font-size: 12px;
+    font-weight: 500;
     opacity: 0.85;
-    margin-top: 4px;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.04em;
   }
 
   /* ===== Toasts ===== */
@@ -461,26 +473,29 @@
   }
 
   // ===== 예매 버튼 렌더링 =====
-  // 운영자가 분석한 티켓링크 호출 함수/POST 요청을 onClick에 직접 주입할 수 있도록
-  // 빈 핸들러 구조로 분리합니다. (실제 로직은 아래 핸들러 내부에 채워 넣으세요)
+  // 오늘(2026-05-08) 11:00에 오픈되는 삼성 라이온즈 홈경기 3개
+  // (KIA vs 삼성 · 대구 삼성라이온즈파크)
   const TODAY_BOOKINGS = [
-    { id: 'lg-doosan',  label: '예매 직행',     team: 'LG vs 두산' },
-    { id: 'kia-samsung',label: '예매 직행',     team: 'KIA vs 삼성' },
-    { id: 'ssg-lotte',  label: '예매 직행',     team: 'SSG vs 롯데' },
+    { id: 'sam-kia-0515', date: '05.15 (금)', time: '18:30', matchup: 'KIA vs 삼성', venue: '대구 삼성라이온즈파크' },
+    { id: 'sam-kia-0516', date: '05.16 (토)', time: '17:00', matchup: 'KIA vs 삼성', venue: '대구 삼성라이온즈파크' },
+    { id: 'sam-kia-0517', date: '05.17 (일)', time: '14:00', matchup: 'KIA vs 삼성', venue: '대구 삼성라이온즈파크' },
   ];
 
   // ▼▼ 사용자가 채워 넣는 영역: 각 경기의 예매 호출 로직을 여기에 작성 ▼▼
+  // ev  : 클릭 이벤트
+  // ctx : { id, date, time, matchup, venue, openedAt, clickedAt }
+  // 예) window.open('https://www.ticketlink.co.kr/...', '_blank')
+  //     티켓링크 예매 팝업 함수 직접 호출
+  //     fetch('https://api.ticketlink.co.kr/...', { method: 'POST', body: ... })
   const bookingHandlers = {
-    'lg-doosan': function (ev, ctx) {
-      // 예) window.open(...), fetch('/booking', {method:'POST', body: ...}),
-      //     티켓링크 팝업 함수 호출 등
-      console.log('[booking] LG vs 두산 트리거', ctx);
+    'sam-kia-0515': function (ev, ctx) {
+      console.log('[booking] 5/15 KIA vs 삼성 트리거', ctx);
     },
-    'kia-samsung': function (ev, ctx) {
-      console.log('[booking] KIA vs 삼성 트리거', ctx);
+    'sam-kia-0516': function (ev, ctx) {
+      console.log('[booking] 5/16 KIA vs 삼성 트리거', ctx);
     },
-    'ssg-lotte': function (ev, ctx) {
-      console.log('[booking] SSG vs 롯데 트리거', ctx);
+    'sam-kia-0517': function (ev, ctx) {
+      console.log('[booking] 5/17 KIA vs 삼성 트리거', ctx);
     },
   };
   // ▲▲ 사용자가 채워 넣는 영역 끝 ▲▲
@@ -495,7 +510,11 @@
       btn.type = 'button';
       btn.className = 'booking-btn';
       btn.dataset.gameId = game.id;
-      btn.innerHTML = `${game.label}<span class="team">${game.team}</span>`;
+      btn.innerHTML = `
+        <span class="btn-date">${game.date} · ${game.time}</span>
+        <span class="btn-cta">예매하기</span>
+        <span class="btn-meta">${game.matchup} · ${game.venue}</span>
+      `;
       btn.addEventListener('click', (ev) => {
         const handler = bookingHandlers[game.id];
         if (typeof handler === 'function') {
