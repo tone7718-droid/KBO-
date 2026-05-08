@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KBO 예매 타이머</title>
+<style>
+  :root {
+    --bg: #000000;
+    --panel: #0c0c0c;
+    --border: #1f1f1f;
+    --text: #ffffff;
+    --muted: #6b6b6b;
+    --accent: #ff2b2b;
+    --accent-hover: #ff5757;
+    --warn: #ffcc00;
+    --ok: #22c55e;
+    --shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 30px 60px -20px rgba(0, 0, 0, 0.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
+      "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    gap: 32px;
+  }
+
+  /* ===== Header / target time setter ===== */
+  .header {
+    width: 100%;
+    max-width: 980px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    font-size: 13px;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .brand b {
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  .target-setter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .target-setter label {
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .target-setter input[type="time"] {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    font-size: 16px;
+    font-family: inherit;
+    border-radius: 8px;
+    outline: none;
+    color-scheme: dark;
+  }
+
+  .target-setter input[type="time"]:focus {
+    border-color: var(--accent);
+  }
+
+  /* ===== Central clock ===== */
+  .clock-wrap {
+    text-align: center;
+    user-select: none;
+  }
+
+  .clock {
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    font-weight: 700;
+    font-size: clamp(56px, 14vw, 200px);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--text);
+    text-shadow: 0 0 60px rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .clock .ms {
+    font-size: 0.4em;
+    color: var(--muted);
+    margin-left: 0.2em;
+    min-width: 2.2em;
+    text-align: left;
+    letter-spacing: -0.02em;
+  }
+
+  .clock-meta {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 13px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+
+  /* ===== Countdown ===== */
+  .countdown {
+    margin-top: 28px;
+    padding: 20px 28px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel);
+    text-align: center;
+    min-width: 280px;
+    box-shadow: var(--shadow);
+  }
+
+  .countdown .label {
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .countdown .value {
+    margin-top: 8px;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .countdown.is-soon .value { color: var(--warn); }
+  .countdown.is-now .value { color: var(--ok); }
+
+  /* ===== Booking buttons (hidden until target time) ===== */
+  .booking-zone {
+    width: 100%;
+    max-width: 980px;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    animation: rise 0.5s ease-out;
+  }
+
+  .booking-zone.is-open { display: flex; }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .booking-title {
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    color: var(--ok);
+    text-transform: uppercase;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .button-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    width: 100%;
+  }
+
+  .booking-btn {
+    appearance: none;
+    border: none;
+    cursor: pointer;
+    background: var(--accent);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 22px 24px;
+    border-radius: 12px;
+    transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: 0 10px 30px -10px var(--accent);
+  }
+
+  .booking-btn:hover {
+    background: var(--accent-hover);
+    transform: translateY(-2px);
+  }
+
+  .booking-btn:active {
+    transform: translateY(0);
+  }
+
+  .booking-btn .team {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.85;
+    margin-top: 4px;
+    letter-spacing: 0.1em;
+  }
+
+  /* ===== Toasts ===== */
+  .toast-stack {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 9999;
+    pointer-events: none;
+    width: min(560px, calc(100% - 32px));
+  }
+
+  .toast {
+    background: var(--text);
+    color: #000;
+    padding: 16px 22px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: toastIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2),
+               toastOut 0.4s ease-in 5.6s forwards;
+    pointer-events: auto;
+  }
+
+  .toast.warn { background: var(--warn); }
+  .toast.danger { background: var(--accent); color: #fff; }
+  .toast.go { background: var(--ok); color: #000; }
+
+  .toast .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(-20px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes toastOut {
+    to { opacity: 0; transform: translateY(-10px) scale(0.98); }
+  }
+
+  /* ===== Footer hint ===== */
+  .hint {
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
+  .hint kbd {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--text);
+  }
+
+  @media (max-width: 600px) {
+    body { gap: 20px; padding: 16px; }
+    .header { justify-content: center; }
+    .countdown { padding: 16px 20px; min-width: unset; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  <header class="header">
+    <div class="brand"><b>KBO</b> · TICKET TIMER</div>
+    <div class="target-setter">
+      <label for="targetTime">예매 오픈</label>
+      <input type="time" id="targetTime" step="1" value="11:00:00" />
+    </div>
+  </header>
+
+  <main class="clock-wrap">
+    <div class="clock" aria-live="off">
+      <span id="hh">00</span><span>:</span><span id="mm">00</span><span>:</span><span id="ss">00</span><span class="ms" id="ms">.000</span>
+    </div>
+    <div class="clock-meta" id="clockMeta">— : — : —</div>
+
+    <div class="countdown" id="countdown">
+      <div class="label">예매 오픈까지</div>
+      <div class="value" id="countdownValue">--:--:--</div>
+    </div>
+  </main>
+
+  <section class="booking-zone" id="bookingZone" aria-hidden="true">
+    <div class="booking-title">● BOOKING IS LIVE</div>
+    <div class="button-grid" id="buttonGrid">
+      <!-- 예매 버튼들이 정각에 렌더링됩니다 -->
+    </div>
+  </section>
+
+  <p class="hint">시간 변경 후 자동 재설정 · 알림음을 위해 화면을 한 번 클릭하세요</p>
+
+<script>
+(() => {
+  'use strict';
+
+  // ===== 상태 =====
+  const state = {
+    targetMs: null,             // 오늘 기준 예매 오픈 시각 (epoch ms)
+    firedAlerts: new Set(),     // 이미 발사된 사전 알림(분 단위)
+    booked: false,              // 예매 버튼 노출 여부
+    audioCtx: null,
+  };
+
+  // 사전 알림 시점 (예매 오픈 X분 전)
+  const ALERT_WINDOWS = [30, 10, 5, 1];
+
+  // ===== DOM =====
+  const $ = (id) => document.getElementById(id);
+  const hhEl = $('hh'), mmEl = $('mm'), ssEl = $('ss'), msEl = $('ms');
+  const clockMeta = $('clockMeta');
+  const countdownEl = $('countdown');
+  const countdownValueEl = $('countdownValue');
+  const targetInput = $('targetTime');
+  const bookingZone = $('bookingZone');
+  const buttonGrid = $('buttonGrid');
+  const toastStack = $('toastStack');
+
+  // ===== 유틸 =====
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+
+  function parseTargetToToday(value) {
+    // value: "HH:MM" 또는 "HH:MM:SS"
+    const [h = 0, m = 0, s = 0] = value.split(':').map(Number);
+    const d = new Date();
+    d.setHours(h, m, s, 0);
+    return d.getTime();
+  }
+
+  function resetForTarget(targetMs) {
+    state.targetMs = targetMs;
+    state.firedAlerts.clear();
+    state.booked = false;
+    bookingZone.classList.remove('is-open');
+    bookingZone.setAttribute('aria-hidden', 'true');
+    buttonGrid.innerHTML = '';
+    countdownEl.classList.remove('is-soon', 'is-now');
+
+    const meta = new Date(targetMs);
+    clockMeta.textContent = `TARGET ${pad(meta.getHours())}:${pad(meta.getMinutes())}:${pad(meta.getSeconds())}`;
+  }
+
+  // ===== 사운드 (Web Audio API, 외부 의존 없음) =====
+  function ensureAudio() {
+    if (!state.audioCtx) {
+      try {
+        state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) { /* noop */ }
+    }
+    if (state.audioCtx && state.audioCtx.state === 'suspended') {
+      state.audioCtx.resume().catch(() => {});
+    }
+    return state.audioCtx;
+  }
+
+  function beep({ freq = 880, duration = 0.18, type = 'sine', gain = 0.15, when = 0 } = {}) {
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    const t0 = ctx.currentTime + when;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+  }
+
+  function playAlertSound(kind) {
+    if (kind === 'open') {
+      // 오픈: 상승하는 트리플 비프
+      beep({ freq: 660, duration: 0.18, gain: 0.2, when: 0 });
+      beep({ freq: 880, duration: 0.18, gain: 0.2, when: 0.22 });
+      beep({ freq: 1320, duration: 0.32, gain: 0.25, when: 0.44 });
+    } else if (kind === 'urgent') {
+      // 1분 전: 짧고 날카로운 더블 비프
+      beep({ freq: 1200, duration: 0.12, gain: 0.18, when: 0 });
+      beep({ freq: 1200, duration: 0.12, gain: 0.18, when: 0.18 });
+    } else {
+      // 일반 사전 알림: 단일 비프
+      beep({ freq: 880, duration: 0.2, gain: 0.15 });
+    }
+  }
+
+  // ===== Toast =====
+  function showToast(message, variant = 'default') {
+    const el = document.createElement('div');
+    el.className = `toast ${variant}`;
+    el.innerHTML = `<span class="dot"></span><span></span>`;
+    el.lastElementChild.textContent = message;
+    toastStack.appendChild(el);
+    setTimeout(() => el.remove(), 6200);
+  }
+
+  // ===== 알림 트리거 =====
+  function triggerPreAlert(minutesLeft) {
+    const variant = minutesLeft <= 1 ? 'danger' : minutesLeft <= 5 ? 'warn' : 'default';
+    showToast(`예매 오픈 ${minutesLeft}분 전입니다`, variant);
+    playAlertSound(minutesLeft <= 1 ? 'urgent' : 'normal');
+  }
+
+  function triggerOpenAlert() {
+    showToast('예매 오픈! 지금 클릭하세요', 'go');
+    playAlertSound('open');
+  }
+
+  // ===== 예매 버튼 렌더링 =====
+  // 운영자가 분석한 티켓링크 호출 함수/POST 요청을 onClick에 직접 주입할 수 있도록
+  // 빈 핸들러 구조로 분리합니다. (실제 로직은 아래 핸들러 내부에 채워 넣으세요)
+  const TODAY_BOOKINGS = [
+    { id: 'lg-doosan',  label: '예매 직행',     team: 'LG vs 두산' },
+    { id: 'kia-samsung',label: '예매 직행',     team: 'KIA vs 삼성' },
+    { id: 'ssg-lotte',  label: '예매 직행',     team: 'SSG vs 롯데' },
+  ];
+
+  // ▼▼ 사용자가 채워 넣는 영역: 각 경기의 예매 호출 로직을 여기에 작성 ▼▼
+  const bookingHandlers = {
+    'lg-doosan': function (ev, ctx) {
+      // 예) window.open(...), fetch('/booking', {method:'POST', body: ...}),
+      //     티켓링크 팝업 함수 호출 등
+      console.log('[booking] LG vs 두산 트리거', ctx);
+    },
+    'kia-samsung': function (ev, ctx) {
+      console.log('[booking] KIA vs 삼성 트리거', ctx);
+    },
+    'ssg-lotte': function (ev, ctx) {
+      console.log('[booking] SSG vs 롯데 트리거', ctx);
+    },
+  };
+  // ▲▲ 사용자가 채워 넣는 영역 끝 ▲▲
+
+  function renderBookingButtons() {
+    if (state.booked) return;
+    state.booked = true;
+    buttonGrid.innerHTML = '';
+
+    TODAY_BOOKINGS.forEach((game) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'booking-btn';
+      btn.dataset.gameId = game.id;
+      btn.innerHTML = `${game.label}<span class="team">${game.team}</span>`;
+      btn.addEventListener('click', (ev) => {
+        const handler = bookingHandlers[game.id];
+        if (typeof handler === 'function') {
+          handler(ev, { ...game, openedAt: state.targetMs, clickedAt: Date.now() });
+        }
+      });
+      buttonGrid.appendChild(btn);
+    });
+
+    bookingZone.classList.add('is-open');
+    bookingZone.setAttribute('aria-hidden', 'false');
+  }
+
+  // ===== 메인 루프 (requestAnimationFrame) =====
+  function tick() {
+    const now = Date.now();
+    const d = new Date(now);
+
+    // 시계
+    hhEl.textContent = pad(d.getHours());
+    mmEl.textContent = pad(d.getMinutes());
+    ssEl.textContent = pad(d.getSeconds());
+    msEl.textContent = '.' + pad(d.getMilliseconds(), 3);
+
+    // 카운트다운 / 알림 / 버튼
+    if (state.targetMs != null) {
+      const diff = state.targetMs - now;
+
+      if (diff > 0) {
+        const totalSec = Math.floor(diff / 1000);
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        countdownValueEl.textContent =
+          `${pad(h)}:${pad(m)}:${pad(s)}`;
+
+        // 1분 이하면 빨강, 5분 이하면 노랑 강조
+        countdownEl.classList.toggle('is-soon', diff <= 5 * 60 * 1000);
+
+        // 사전 알림 트리거
+        for (const win of ALERT_WINDOWS) {
+          if (state.firedAlerts.has(win)) continue;
+          const winMs = win * 60 * 1000;
+          // 윈도우 진입 직후 한 번만 발사 (현재 diff <= winMs 그리고 0보다 큼)
+          if (diff <= winMs && diff > winMs - 1500) {
+            state.firedAlerts.add(win);
+            triggerPreAlert(win);
+          } else if (diff <= winMs && !state.firedAlerts.has(win)) {
+            // 페이지 로드 시점에 이미 윈도우 안인 경우: 한 번만 표기
+            state.firedAlerts.add(win);
+          }
+        }
+      } else {
+        // 오픈 시각 도달
+        countdownValueEl.textContent = '00:00:00';
+        countdownEl.classList.remove('is-soon');
+        countdownEl.classList.add('is-now');
+        if (!state.booked) {
+          triggerOpenAlert();
+          renderBookingButtons();
+        }
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // ===== 이벤트 =====
+  targetInput.addEventListener('change', () => {
+    const t = parseTargetToToday(targetInput.value || '11:00:00');
+    resetForTarget(t);
+  });
+
+  // 사용자가 한 번이라도 페이지에 상호작용하면 오디오 컨텍스트 활성화
+  ['click', 'keydown', 'touchstart'].forEach((evt) =>
+    window.addEventListener(evt, ensureAudio, { once: true, passive: true })
+  );
+
+  // ===== 초기화 =====
+  resetForTarget(parseTargetToToday(targetInput.value || '11:00:00'));
+  requestAnimationFrame(tick);
+})();
+</script>
+
+</body>
+</html>
