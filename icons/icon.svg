@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KBO ticket helper icon">
-  <rect width="512" height="512" rx="112" fill="#101828"/>
-  <path d="M140 160h232a36 36 0 0 1 36 36v48c-28 0-50 22-50 50s22 50 50 50v48a36 36 0 0 1-36 36H140a36 36 0 0 1-36-36v-48c28 0 50-22 50-50s-22-50-50-50v-48a36 36 0 0 1 36-36Z" fill="#ffffff"/>
-  <path d="M204 150v116l106-116h58L258 270l115 140h-62l-87-106-20 22v84h-48V150h48Z" fill="#2563eb"/>
-  <circle cx="358" cy="154" r="34" fill="#f04438"/>
-  <path d="M346 142c12 8 19 19 22 33M370 138c-15 4-27 12-37 25" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/>
-</svg>
+
