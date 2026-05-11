@@ -4,701 +4,228 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#070b13" />
-  <title>KBO 고정밀 시계</title>
+  <title>KBO 서버 동기화 고정밀 시계</title>
   <style>
-    :root {
-      --bg: #070b13;
-      --bg-soft: #0c1220;
-      --panel: rgba(15, 23, 42, 0.82);
-      --panel-strong: rgba(15, 23, 42, 0.96);
-      --border: rgba(148, 163, 184, 0.16);
-      --border-strong: rgba(125, 211, 252, 0.38);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --muted-soft: #64748b;
-      --accent: #38bdf8;
-      --accent-strong: #0ea5e9;
-      --green: #34d399;
-      --amber: #fbbf24;
-      --red: #fb7185;
-      --shadow: 0 32px 90px rgba(0, 0, 0, 0.45);
-      --radius-xl: 28px;
-      --radius-lg: 20px;
-      --radius-md: 14px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html,
-    body {
-      margin: 0;
-      min-height: 100%;
-      background:
-        radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.16), transparent 32%),
-        radial-gradient(circle at 82% 18%, rgba(52, 211, 153, 0.12), transparent 30%),
-        linear-gradient(135deg, #050816 0%, var(--bg) 48%, #020617 100%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-      -webkit-font-smoothing: antialiased;
-      text-rendering: geometricPrecision;
-    }
-
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 32px 18px;
-      overflow-x: hidden;
-    }
-
-    button,
-    input {
-      font: inherit;
-    }
-
-    .app {
-      width: min(1120px, 100%);
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 18px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: var(--muted);
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .brand-mark {
-      width: 34px;
-      height: 34px;
-      border-radius: 12px;
-      display: grid;
-      place-items: center;
-      color: #020617;
-      background: linear-gradient(135deg, var(--accent), var(--green));
-      box-shadow: 0 0 36px rgba(56, 189, 248, 0.34);
-      letter-spacing: -0.08em;
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 13px;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.68);
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 18px rgba(52, 211, 153, 0.9);
-    }
-
-    .dashboard {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      background: linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.86));
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(24px);
-      overflow: hidden;
-    }
-
-    .clock-panel {
-      position: relative;
-      padding: clamp(28px, 5vw, 64px);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .clock-panel::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
-      background-size: 36px 36px;
-      mask-image: radial-gradient(circle at center, black, transparent 78%);
-    }
-
-    .clock-content {
-      position: relative;
-      z-index: 1;
-    }
-
-    .eyebrow {
-      margin: 0 0 16px;
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 900;
-      letter-spacing: 0.28em;
-      text-transform: uppercase;
-    }
-
-    .clock {
-      display: flex;
-      align-items: baseline;
-      flex-wrap: wrap;
-      gap: 0.08em;
-      font-family: "SF Mono", "Cascadia Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-      font-weight: 850;
-      line-height: 0.94;
-      letter-spacing: -0.075em;
-      font-variant-numeric: tabular-nums;
-      user-select: none;
-    }
-
-    .clock-main {
-      font-size: clamp(54px, 13vw, 156px);
-      text-shadow: 0 0 60px rgba(56, 189, 248, 0.12);
-    }
-
-    .clock-ms {
-      font-size: clamp(30px, 6vw, 70px);
-      color: var(--accent);
-      letter-spacing: -0.06em;
-      min-width: 3.25ch;
-    }
-
-    .date-line {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px 16px;
-      margin-top: 22px;
-      color: var(--muted);
-      font-size: clamp(13px, 2vw, 16px);
-      letter-spacing: 0.03em;
-    }
-
-    .date-line strong {
-      color: var(--text);
-      font-weight: 800;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 1px;
-      background: var(--border);
-    }
-
-    .card {
-      min-height: 132px;
-      padding: 22px;
-      background: var(--panel);
-    }
-
-    .card-label {
-      margin: 0 0 12px;
-      color: var(--muted-soft);
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-    }
-
-    .card-value {
-      margin: 0;
-      font-family: "SF Mono", "Cascadia Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-      font-size: clamp(22px, 3vw, 34px);
-      font-weight: 850;
-      line-height: 1.05;
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .card-value.small {
-      font-size: clamp(18px, 2.4vw, 26px);
-    }
-
-    .card-help {
-      margin: 10px 0 0;
-      color: var(--muted-soft);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-
-    .control-panel {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 1px;
-      background: var(--border);
-    }
-
-    .target-box,
-    .note-box {
-      padding: 24px;
-      background: var(--panel-strong);
-    }
-
-    .section-title {
-      margin: 0 0 16px;
-      font-size: 15px;
-      font-weight: 900;
-      letter-spacing: -0.02em;
-    }
-
-    .target-form {
-      display: grid;
-      grid-template-columns: minmax(170px, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .target-form label {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0.08em;
-    }
-
-    .target-form input {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: rgba(2, 6, 23, 0.72);
-      color: var(--text);
-      padding: 14px 15px;
-      outline: none;
-      color-scheme: dark;
-      font-family: "SF Mono", "Cascadia Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-      font-weight: 700;
-    }
-
-    .target-form input:focus {
-      border-color: var(--border-strong);
-      box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1);
-    }
-
-    .button {
-      border: 0;
-      border-radius: var(--radius-md);
-      padding: 15px 18px;
-      color: #020617;
-      background: linear-gradient(135deg, var(--accent), var(--green));
-      font-weight: 950;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: transform 140ms ease, filter 140ms ease;
-    }
-
-    .button:hover {
-      filter: brightness(1.08);
-      transform: translateY(-1px);
-    }
-
-    .button:active {
-      transform: translateY(0);
-    }
-
-    .target-result {
-      margin-top: 18px;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .mini-card {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 14px;
-      background: rgba(2, 6, 23, 0.42);
-    }
-
-    .mini-card span {
-      display: block;
-      color: var(--muted-soft);
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-    }
-
-    .mini-card strong {
-      display: block;
-      margin-top: 7px;
-      font-family: "SF Mono", "Cascadia Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-      font-size: 20px;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .note-box p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.7;
-      font-size: 14px;
-    }
-
-    .note-box code {
-      color: var(--accent);
-      font-family: "SF Mono", "Cascadia Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-      font-size: 0.92em;
-    }
-
-    .footer {
-      margin-top: 14px;
-      color: var(--muted-soft);
-      text-align: center;
-      font-size: 12px;
-      line-height: 1.6;
-    }
-
-    @media (max-width: 860px) {
-      .grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .control-panel {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 560px) {
-      body {
-        padding: 18px 12px;
-      }
-
-      .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .clock-panel {
-        padding: 28px 18px;
-      }
-
-      .clock {
-        gap: 0;
-      }
-
-      .clock-main {
-        width: 100%;
-      }
-
-      .clock-ms {
-        margin-top: 8px;
-      }
-
-      .grid,
-      .target-result {
-        grid-template-columns: 1fr;
-      }
-
-      .target-form {
-        grid-template-columns: 1fr;
-      }
-
-      .button {
-        width: 100%;
-      }
-    }
+    :root{--bg:#070b13;--panel:rgba(15,23,42,.84);--strong:rgba(15,23,42,.96);--border:rgba(148,163,184,.16);--text:#f8fafc;--muted:#94a3b8;--soft:#64748b;--accent:#38bdf8;--green:#34d399;--amber:#fbbf24;--red:#fb7185;--r:18px;--shadow:0 32px 90px rgba(0,0,0,.45)}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:radial-gradient(circle at 18% 12%,rgba(56,189,248,.16),transparent 32%),radial-gradient(circle at 82% 18%,rgba(52,211,153,.12),transparent 30%),linear-gradient(135deg,#050816 0%,var(--bg) 48%,#020617 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI","Pretendard","Apple SD Gothic Neo","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}body{display:flex;align-items:center;justify-content:center;padding:32px 18px;overflow-x:hidden}button,input{font:inherit}.app{width:min(1120px,100%)}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.brand{display:flex;align-items:center;gap:12px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-size:12px;font-weight:800}.mark{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));box-shadow:0 0 36px rgba(56,189,248,.34);letter-spacing:-.08em}.pill{display:inline-flex;align-items:center;gap:8px;padding:10px 13px;border:1px solid var(--border);border-radius:999px;background:rgba(15,23,42,.68);color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.04em;white-space:nowrap}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 18px rgba(52,211,153,.9)}
+    .dashboard{border:1px solid var(--border);border-radius:28px;background:linear-gradient(180deg,rgba(15,23,42,.86),rgba(2,6,23,.86));box-shadow:var(--shadow);backdrop-filter:blur(24px);overflow:hidden}.clock-panel{position:relative;padding:clamp(28px,5vw,64px);border-bottom:1px solid var(--border)}.clock-panel:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(rgba(148,163,184,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.035) 1px,transparent 1px);background-size:36px 36px;mask-image:radial-gradient(circle at center,black,transparent 78%)}.clock-content{position:relative;z-index:1;display:grid;justify-items:center;text-align:center}.eyebrow{margin:0 0 16px;color:var(--accent);font-size:12px;font-weight:900;letter-spacing:.28em;text-transform:uppercase}.clock{display:flex;align-items:baseline;justify-content:center;flex-wrap:wrap;gap:.08em;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-weight:850;line-height:.94;letter-spacing:-.075em;font-variant-numeric:tabular-nums;user-select:none}.clock-main{font-size:clamp(54px,13vw,156px);text-shadow:0 0 60px rgba(56,189,248,.12)}.clock-ms{font-size:clamp(30px,6vw,70px);color:var(--accent);letter-spacing:-.06em;min-width:3.25ch}.date-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px 16px;margin-top:22px;color:var(--muted);font-size:clamp(13px,2vw,16px);letter-spacing:.03em}.date-line strong{color:var(--text);font-weight:800}
+    .booking-action{margin-top:30px;display:grid;gap:10px;justify-items:center}.booking-btn{width:min(360px,100%);border:1px solid rgba(56,189,248,.18);border-radius:999px;padding:20px 28px;color:rgba(248,250,252,.58);background:rgba(15,23,42,.82);font-size:clamp(20px,4vw,30px);font-weight:950;letter-spacing:-.03em;cursor:not-allowed;transition:.14s}.booking-btn.ready{color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));border-color:transparent;cursor:pointer;box-shadow:0 22px 70px rgba(56,189,248,.26),0 0 0 8px rgba(56,189,248,.08);animation:pulse 1s ease-in-out infinite alternate}.booking-btn.ready:hover{filter:brightness(1.08);transform:translateY(-1px)}.booking-help{min-height:18px;margin:0;color:var(--soft);font-size:12px;line-height:1.5}@keyframes pulse{from{box-shadow:0 22px 70px rgba(56,189,248,.22),0 0 0 4px rgba(56,189,248,.06)}to{box-shadow:0 28px 90px rgba(52,211,153,.28),0 0 0 12px rgba(52,211,153,.1)}}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--border)}.card{min-height:132px;padding:22px;background:var(--panel)}.label{margin:0 0 12px;color:var(--soft);font-size:11px;font-weight:900;letter-spacing:.2em;text-transform:uppercase}.value{margin:0;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:clamp(20px,2.8vw,32px);font-weight:850;line-height:1.05;color:var(--text);font-variant-numeric:tabular-nums}.help{margin:10px 0 0;color:var(--soft);font-size:12px;line-height:1.45}.control{display:grid;grid-template-columns:1.25fr .75fr;gap:1px;background:var(--border)}.box,.note{padding:24px;background:var(--strong)}.title{margin:0 0 16px;font-size:15px;font-weight:900;letter-spacing:-.02em}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:end}.field label{display:block;margin-bottom:8px;color:var(--muted);font-size:12px;font-weight:800;letter-spacing:.08em}.field input{width:100%;border:1px solid var(--border);border-radius:14px;background:rgba(2,6,23,.72);color:var(--text);padding:14px 15px;outline:none;color-scheme:dark;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-weight:700}.field input:focus{border-color:rgba(125,211,252,.38);box-shadow:0 0 0 4px rgba(56,189,248,.1)}.row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px}.btn{border:0;border-radius:14px;padding:14px 18px;color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));font-weight:950;cursor:pointer;white-space:nowrap;transition:.14s}.btn.secondary{color:var(--text);background:rgba(30,41,59,.94);border:1px solid var(--border)}.btn:hover{filter:brightness(1.08);transform:translateY(-1px)}.check{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-weight:700;user-select:none}.check input{width:16px;height:16px;accent-color:var(--accent)}.result{margin-top:18px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.mini{border:1px solid var(--border);border-radius:14px;padding:14px;background:rgba(2,6,23,.42)}.mini span{display:block;color:var(--soft);font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}.mini strong{display:block;margin-top:7px;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:20px;font-variant-numeric:tabular-nums}.sync{display:grid;gap:10px;margin-top:18px;padding-top:18px;border-top:1px solid var(--border)}.note p{margin:0;color:var(--muted);line-height:1.7;font-size:14px}.note code{color:var(--accent);font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:.92em}.footer{margin-top:14px;color:var(--soft);text-align:center;font-size:12px;line-height:1.6}
+    @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.control{grid-template-columns:1fr}}@media(max-width:620px){body{padding:18px 12px}.topbar{align-items:flex-start;flex-direction:column}.clock-panel{padding:28px 18px}.clock{gap:0}.clock-main{width:100%}.clock-ms{margin-top:8px}.grid,.form-grid,.result{grid-template-columns:1fr}.btn,.booking-btn{width:100%}}
   </style>
 </head>
 <body>
   <div class="app">
-    <header class="topbar" aria-label="앱 상단 정보">
-      <div class="brand">
-        <span class="brand-mark">K</span>
-        <span>KBO · Precision Clock</span>
-      </div>
-      <div class="status-pill" title="requestAnimationFrame으로 화면 갱신 중">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="loopStatus">RAF ACTIVE</span>
-      </div>
-    </header>
-
+    <header class="topbar"><div class="brand"><span class="mark">K</span><span>KBO · Server Synced Clock</span></div><div class="pill"><span class="dot"></span><span id="loopStatus">RAF ACTIVE</span></div></header>
     <main class="dashboard">
-      <section class="clock-panel" aria-labelledby="clockTitle">
+      <section class="clock-panel">
         <div class="clock-content">
-          <p class="eyebrow" id="clockTitle">1/1000 Second Clock</p>
-          <div class="clock" aria-live="off" aria-label="현재 시각">
-            <span class="clock-main" id="clockMain">00:00:00</span>
-            <span class="clock-ms" id="clockMs">.000</span>
-          </div>
-          <div class="date-line">
-            <span id="dateText">날짜 계산 중</span>
-            <span>·</span>
-            <span>시간대 <strong id="timeZoneText">-</strong></span>
-          </div>
+          <p class="eyebrow">1/1000 Second Server Clock</p>
+          <div class="clock" aria-live="off" aria-label="서버 보정 현재 시각"><span class="clock-main" id="clockMain">00:00:00</span><span class="clock-ms" id="clockMs">.000</span></div>
+          <div class="date-line"><span id="dateText">날짜 계산 중</span><span>·</span><span>시간대 <strong id="timeZoneText">-</strong></span></div>
+          <div class="booking-action" aria-live="polite"><button class="booking-btn" id="bookingButton" type="button" disabled>예매 시작</button><p class="booking-help" id="bookingHelp">목표 시각을 적용하면 예매 시작 버튼이 대기 상태로 전환됩니다.</p></div>
         </div>
       </section>
-
-      <section class="grid" aria-label="시계 성능 정보">
-        <article class="card">
-          <p class="card-label">Date.now 보정값</p>
-          <p class="card-value small" id="offsetText">+0.000 ms</p>
-          <p class="card-help">performance.now 기준 시각을 시스템 시각에 맞추는 오프셋입니다.</p>
-        </article>
-        <article class="card">
-          <p class="card-label">최근 보정 차이</p>
-          <p class="card-value small" id="driftText">0.000 ms</p>
-          <p class="card-help">주기적으로 Date.now와 비교해 누적 흔들림을 줄입니다.</p>
-        </article>
-        <article class="card">
-          <p class="card-label">렌더링 루프</p>
-          <p class="card-value" id="fpsText">-- FPS</p>
-          <p class="card-help">requestAnimationFrame 기반으로 브라우저 렌더링에 맞춰 갱신합니다.</p>
-        </article>
-        <article class="card">
-          <p class="card-label">현재 Epoch</p>
-          <p class="card-value small" id="epochText">0</p>
-          <p class="card-help">보정된 현재 시각의 Unix epoch millisecond 값입니다.</p>
-        </article>
+      <section class="grid" aria-label="서버 시계 성능 정보">
+        <article class="card"><p class="label">서버 Offset</p><p class="value" id="serverOffsetText">+0.000 ms</p><p class="help">서버 시각 - 로컬 시각입니다. 표시 시계에 반영됩니다.</p></article>
+        <article class="card"><p class="label">응답 지연 RTT</p><p class="value" id="rttText">-- ms</p><p class="help">3회 측정 중 가장 빠른 응답을 기준으로 동기화합니다.</p></article>
+        <article class="card"><p class="label">렌더링 루프</p><p class="value" id="fpsText">-- FPS</p><p class="help">requestAnimationFrame 기반으로 갱신합니다.</p></article>
+        <article class="card"><p class="label">동기화 상태</p><p class="value" id="syncStatusText">LOCAL</p><p class="help" id="syncSourceText">서버 동기화 전에는 로컬 보정값을 사용합니다.</p></article>
       </section>
-
-      <section class="control-panel" aria-label="목표 시각 및 설명">
-        <div class="target-box">
-          <h2 class="section-title">KBO 예매 기준 시각</h2>
-          <form class="target-form" id="targetForm">
-            <div>
-              <label for="targetTime">오늘의 목표 시각</label>
-              <input id="targetTime" type="time" step="0.001" value="11:00:00.000" />
-            </div>
-            <button class="button" type="submit">기준 시각 적용</button>
+      <section class="control" aria-label="목표 시각 및 서버 동기화 설정">
+        <div class="box">
+          <h2 class="title">KBO 예매 기준 시각</h2>
+          <form id="targetForm">
+            <div class="form-grid"><div class="field"><label for="targetTime">오늘의 목표 시각</label><input id="targetTime" type="time" step="0.001" value="11:00:00.000" /></div><div class="field"><label for="bookingUrl">예매 URL</label><input id="bookingUrl" type="url" inputmode="url" value="https://www.ticketlink.co.kr/" placeholder="https://example.com/ticket" /></div></div>
+            <div class="row"><button class="btn" type="submit">기준 시각 적용</button><label class="check" for="autoOpen"><input id="autoOpen" type="checkbox" checked />도달 시 자동 새 창 열기</label></div>
           </form>
-          <div class="target-result">
-            <div class="mini-card">
-              <span>남은 시간</span>
-              <strong id="countdownText">--:--:--.---</strong>
-            </div>
-            <div class="mini-card">
-              <span>상태</span>
-              <strong id="targetStatus">대기 중</strong>
-            </div>
-          </div>
+          <div class="result"><div class="mini"><span>남은 시간</span><strong id="countdownText">--:--:--.---</strong></div><div class="mini"><span>상태</span><strong id="targetStatus">대기 중</strong></div></div>
+          <div class="sync"><h2 class="title">서버 시간 동기화</h2><div class="field"><label for="timeApiUrl">시간 API 또는 서버 URL</label><input id="timeApiUrl" type="url" inputmode="url" value="https://worldtimeapi.org/api/timezone/Etc/UTC" /></div><div class="row"><button class="btn secondary" id="syncButton" type="button">서버 시간 다시 동기화</button><span class="check" id="lastSyncedText">아직 동기화 전</span></div></div>
         </div>
-
-        <aside class="note-box">
-          <h2 class="section-title">구현 방식</h2>
-          <p>
-            화면 갱신은 <code>requestAnimationFrame</code>으로 처리하고,
-            실제 표시 시각은 <code>performance.now()</code>에 <code>Date.now()</code> 기반 보정값을 더해 계산합니다.
-            그래서 브라우저 렌더링 타이밍은 부드럽게 유지하면서도 밀리초 단위 표시 흔들림을 줄입니다.
-          </p>
-        </aside>
+        <aside class="note"><h2 class="title">구현 방식</h2><p><code>fetch</code>로 세계 표준시 API 또는 서버 응답의 <code>Date</code> 헤더를 읽고, 요청 시작·응답 완료의 중간 지점을 기준으로 서버와 로컬 시계의 오차를 계산합니다. 표시 시각은 <code>performance.now()</code> + 로컬 보정값 + 서버 <code>Offset</code>으로 계산하고, 화면 갱신은 <code>requestAnimationFrame</code>으로 처리합니다.</p></aside>
       </section>
     </main>
-
-    <p class="footer">
-      표시 정밀도는 1ms 단위입니다. 실제 절대 시각 정확도는 사용 중인 기기의 시스템 시계 동기화 상태에 영향을 받습니다.
-    </p>
+    <p class="footer">자동 새 창 열기는 브라우저 팝업 차단 정책에 의해 막힐 수 있습니다. 막히면 활성화된 “예매 시작” 버튼을 직접 누르면 됩니다.</p>
   </div>
-
   <script>
     (() => {
       'use strict';
-
       const $ = (id) => document.getElementById(id);
+      const DEFAULT_TIME_API = 'https://worldtimeapi.org/api/timezone/Etc/UTC';
+      const clockMain = $('clockMain'), clockMs = $('clockMs'), dateText = $('dateText'), timeZoneText = $('timeZoneText');
+      const serverOffsetText = $('serverOffsetText'), rttText = $('rttText'), fpsText = $('fpsText'), syncStatusText = $('syncStatusText'), syncSourceText = $('syncSourceText');
+      const targetForm = $('targetForm'), targetTime = $('targetTime'), bookingUrl = $('bookingUrl'), autoOpen = $('autoOpen'), countdownText = $('countdownText'), targetStatus = $('targetStatus');
+      const loopStatus = $('loopStatus'), timeApiUrl = $('timeApiUrl'), syncButton = $('syncButton'), lastSyncedText = $('lastSyncedText'), bookingButton = $('bookingButton'), bookingHelp = $('bookingHelp');
+      const pad = (v, w = 2) => String(v).padStart(w, '0');
+      const signed = (v, d = 3) => `${v >= 0 ? '+' : ''}${v.toFixed(d)}`;
+      const state = { localOffset: Date.now() - performance.now(), serverOffset: 0, lastRenderedMs: -1, lastDateSecond: -1, lastLocalSyncAt: 0, targetMs: null, armed: false, bookingOpened: false, frameCount: 0, fpsStartedAt: performance.now() };
 
-      const clockMain = $('clockMain');
-      const clockMs = $('clockMs');
-      const dateText = $('dateText');
-      const timeZoneText = $('timeZoneText');
-      const offsetText = $('offsetText');
-      const driftText = $('driftText');
-      const fpsText = $('fpsText');
-      const epochText = $('epochText');
-      const targetForm = $('targetForm');
-      const targetTime = $('targetTime');
-      const countdownText = $('countdownText');
-      const targetStatus = $('targetStatus');
-      const loopStatus = $('loopStatus');
-
-      const pad = (value, width = 2) => String(value).padStart(width, '0');
-      const signed = (value, digits = 3) => `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
-
-      const state = {
-        wallClockOffset: Date.now() - performance.now(),
-        lastDrift: 0,
-        lastRenderedMs: -1,
-        lastDateSecond: -1,
-        lastSyncAt: 0,
-        targetMs: null,
-        frameCount: 0,
-        fpsStartedAt: performance.now(),
-      };
-
-      function sampleWallClockOffset() {
-        const before = performance.now();
-        const wall = Date.now();
-        const after = performance.now();
-        const midpoint = (before + after) / 2;
-        return wall - midpoint;
+      function sampleLocalOffset() {
+        const before = performance.now(), wall = Date.now(), after = performance.now();
+        return wall - ((before + after) / 2);
       }
-
-      function resyncClock({ hard = false } = {}) {
-        const sampledOffset = sampleWallClockOffset();
-        const drift = sampledOffset - state.wallClockOffset;
-        state.lastDrift = drift;
-
-        if (hard) {
-          state.wallClockOffset = sampledOffset;
-        } else {
-          state.wallClockOffset += drift * 0.18;
-        }
+      function resyncLocalClock(hard = false) {
+        const sampled = sampleLocalOffset();
+        state.localOffset = hard ? sampled : state.localOffset + ((sampled - state.localOffset) * 0.18);
       }
-
-      function correctedNow() {
-        return performance.now() + state.wallClockOffset;
-      }
-
-      function parseTargetTime(value) {
-        const match = /^([0-2]?\d):([0-5]\d)(?::([0-5]\d)(?:\.(\d{1,3}))?)?$/.exec(value || '');
-        if (!match) return null;
-
-        const hours = Number(match[1]);
-        const minutes = Number(match[2]);
-        const seconds = Number(match[3] || 0);
-        const milliseconds = Number((match[4] || '0').padEnd(3, '0'));
-
-        if (hours > 23) return null;
-
+      function correctedNow() { return performance.now() + state.localOffset + state.serverOffset; }
+      function localFromPerf(perfTime) { return perfTime + state.localOffset; }
+      function parseTarget(value) {
+        const m = /^([0-2]?\d):([0-5]\d)(?::([0-5]\d)(?:\.(\d{1,3}))?)?$/.exec(value || '');
+        if (!m) return null;
+        const h = Number(m[1]), min = Number(m[2]), s = Number(m[3] || 0), ms = Number((m[4] || '0').padEnd(3, '0'));
+        if (h > 23) return null;
         const target = new Date(Math.floor(correctedNow()));
-        target.setHours(hours, minutes, seconds, milliseconds);
+        target.setHours(h, min, s, ms);
         return target.getTime();
       }
-
-      function formatCountdown(diffMs) {
-        const sign = diffMs < 0 ? '-' : '';
-        const abs = Math.abs(Math.trunc(diffMs));
-        const hours = Math.floor(abs / 3_600_000);
-        const minutes = Math.floor((abs % 3_600_000) / 60_000);
-        const seconds = Math.floor((abs % 60_000) / 1_000);
-        const ms = abs % 1_000;
-        return `${sign}${pad(hours)}:${pad(minutes)}:${pad(seconds)}.${pad(ms, 3)}`;
+      function parseBookingUrl() {
+        try {
+          const raw = bookingUrl.value.trim();
+          if (!raw) return null;
+          const url = new URL(raw, window.location.href);
+          return /^https?:$/.test(url.protocol) ? url.href : null;
+        } catch { return null; }
       }
-
+      function formatCountdown(diff) {
+        const sign = diff < 0 ? '-' : '', abs = Math.abs(Math.trunc(diff));
+        const h = Math.floor(abs / 3600000), m = Math.floor((abs % 3600000) / 60000), s = Math.floor((abs % 60000) / 1000), ms = abs % 1000;
+        return `${sign}${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms, 3)}`;
+      }
       function updateDateLine(date) {
         const weekday = new Intl.DateTimeFormat('ko-KR', { weekday: 'long' }).format(date);
-        const fullDate = new Intl.DateTimeFormat('ko-KR', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        }).format(date);
-
+        const fullDate = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(date);
         dateText.textContent = `${fullDate} ${weekday}`;
         timeZoneText.textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
       }
-
-      function updateTarget(nowMs) {
-        if (state.targetMs == null) {
-          countdownText.textContent = '--:--:--.---';
-          targetStatus.textContent = '대기 중';
-          return;
+      function setBookingReady(ready) {
+        bookingButton.disabled = !ready;
+        bookingButton.classList.toggle('ready', ready);
+      }
+      function openBookingWindow(trigger = 'manual') {
+        const url = parseBookingUrl();
+        if (!url) {
+          bookingHelp.textContent = '예매 URL이 비어 있거나 올바르지 않습니다.';
+          targetStatus.textContent = 'URL 오류';
+          targetStatus.style.color = 'var(--red)';
+          return false;
         }
-
-        const diff = state.targetMs - nowMs;
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        state.bookingOpened = true;
+        bookingHelp.textContent = opened
+          ? (trigger === 'auto' ? '목표 시각에 도달해 예매 창을 자동으로 열었습니다.' : '예매 창을 새 창으로 열었습니다.')
+          : '브라우저가 자동 새 창 열기를 차단했을 수 있습니다. 버튼을 직접 눌러주세요.';
+        return Boolean(opened);
+      }
+      function updateTarget(now) {
+        if (state.targetMs == null) { countdownText.textContent = '--:--:--.---'; targetStatus.textContent = '대기 중'; setBookingReady(false); return; }
+        const diff = state.targetMs - now;
         countdownText.textContent = formatCountdown(diff);
-
-        if (diff > 10_000) {
-          targetStatus.textContent = '대기 중';
-          targetStatus.style.color = '';
-        } else if (diff > 0) {
-          targetStatus.textContent = '임박';
-          targetStatus.style.color = 'var(--amber)';
-        } else {
-          targetStatus.textContent = '도달';
-          targetStatus.style.color = 'var(--green)';
+        if (!state.armed) { targetStatus.textContent = '기준 적용 필요'; targetStatus.style.color = 'var(--amber)'; setBookingReady(false); return; }
+        if (diff > 10000) { targetStatus.textContent = '대기 중'; targetStatus.style.color = ''; bookingHelp.textContent = '목표 시각이 되면 예매 시작 버튼이 활성화됩니다.'; setBookingReady(false); }
+        else if (diff > 0) { targetStatus.textContent = '임박'; targetStatus.style.color = 'var(--amber)'; bookingHelp.textContent = '예매 시작 임박. 버튼 활성화를 준비 중입니다.'; setBookingReady(false); }
+        else {
+          targetStatus.textContent = '도달'; targetStatus.style.color = 'var(--green)'; setBookingReady(true);
+          if (autoOpen.checked && !state.bookingOpened) openBookingWindow('auto');
+          else if (!state.bookingOpened) bookingHelp.textContent = '목표 시각에 도달했습니다. 예매 시작 버튼을 누르세요.';
         }
       }
-
+      function readServerTimeFromJson(data) {
+        for (const key of ['utc_datetime', 'datetime', 'currentDateTime', 'dateTime', 'time']) {
+          if (data[key]) { const parsed = Date.parse(data[key]); if (Number.isFinite(parsed)) return parsed; }
+        }
+        if (Number.isFinite(data.unixtime)) return data.unixtime * 1000;
+        if (Number.isFinite(data.unixTime)) return data.unixTime * 1000;
+        if (Number.isFinite(data.epoch)) return data.epoch;
+        return null;
+      }
+      async function fetchServerSample(url) {
+        const start = performance.now();
+        const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json, text/plain, */*' } });
+        const end = performance.now(), rtt = end - start;
+        let serverMs = null, sourceType = 'Date header';
+        if ((response.headers.get('content-type') || '').includes('application/json')) {
+          try {
+            serverMs = readServerTimeFromJson(await response.clone().json());
+            if (serverMs != null) sourceType = 'JSON time API';
+          } catch { serverMs = null; }
+        }
+        if (serverMs == null) {
+          const headerTime = Date.parse(response.headers.get('date') || '');
+          if (Number.isFinite(headerTime)) serverMs = headerTime;
+        }
+        if (serverMs == null) throw new Error('응답에서 서버 시간을 찾지 못했습니다. JSON 시간 필드 또는 Date 헤더가 필요합니다.');
+        const midpoint = (start + end) / 2;
+        return { offset: serverMs - localFromPerf(midpoint), rtt, sourceType };
+      }
+      async function syncWithServer() {
+        const primary = timeApiUrl.value.trim() || DEFAULT_TIME_API;
+        const fallback = `${window.location.origin}${window.location.pathname}?time-sync=${Date.now()}`;
+        const urls = primary === fallback ? [primary] : [primary, fallback];
+        syncButton.disabled = true; syncStatusText.textContent = 'SYNCING'; syncStatusText.style.color = ''; syncSourceText.textContent = '서버 시간 측정 중입니다.';
+        let lastError = null;
+        for (const url of urls) {
+          const samples = [];
+          for (let i = 0; i < 3; i += 1) {
+            try { samples.push(await fetchServerSample(url)); } catch (err) { lastError = err; }
+          }
+          if (samples.length) {
+            samples.sort((a, b) => a.rtt - b.rtt);
+            const best = samples[0];
+            state.serverOffset = best.offset;
+            const now = Math.floor(correctedNow());
+            serverOffsetText.textContent = `${signed(state.serverOffset)} ms`;
+            rttText.textContent = `${best.rtt.toFixed(1)} ms`;
+            syncStatusText.textContent = 'SERVER'; syncStatusText.style.color = 'var(--green)';
+            syncSourceText.textContent = `${best.sourceType} · ${new URL(url, window.location.href).hostname}`;
+            lastSyncedText.textContent = `동기화 완료 ${new Date(now).toLocaleTimeString('ko-KR')}`;
+            syncButton.disabled = false;
+            return;
+          }
+        }
+        syncStatusText.textContent = 'LOCAL'; syncStatusText.style.color = 'var(--amber)';
+        syncSourceText.textContent = lastError?.message || '서버 동기화 실패. 로컬 보정 시계를 사용합니다.';
+        lastSyncedText.textContent = '동기화 실패'; syncButton.disabled = false;
+      }
       function updateFps(timestamp) {
         state.frameCount += 1;
         const elapsed = timestamp - state.fpsStartedAt;
-
-        if (elapsed >= 1000) {
-          const fps = Math.round((state.frameCount * 1000) / elapsed);
-          fpsText.textContent = `${fps} FPS`;
-          state.frameCount = 0;
-          state.fpsStartedAt = timestamp;
-        }
+        if (elapsed >= 1000) { fpsText.textContent = `${Math.round((state.frameCount * 1000) / elapsed)} FPS`; state.frameCount = 0; state.fpsStartedAt = timestamp; }
       }
-
       function render(timestamp) {
-        if (timestamp - state.lastSyncAt >= 2000) {
-          resyncClock();
-          state.lastSyncAt = timestamp;
-        }
-
-        const nowMs = correctedNow();
-        const integerMs = Math.floor(nowMs);
-
+        if (timestamp - state.lastLocalSyncAt >= 2000) { resyncLocalClock(); state.lastLocalSyncAt = timestamp; }
+        const now = correctedNow(), integerMs = Math.floor(now);
         if (integerMs !== state.lastRenderedMs) {
-          const date = new Date(integerMs);
-          const hours = date.getHours();
-          const minutes = date.getMinutes();
-          const seconds = date.getSeconds();
-          const milliseconds = date.getMilliseconds();
-
-          clockMain.textContent = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
-          clockMs.textContent = `.${pad(milliseconds, 3)}`;
-          epochText.textContent = String(integerMs);
-          offsetText.textContent = `${signed(state.wallClockOffset)} ms`;
-          driftText.textContent = `${signed(state.lastDrift)} ms`;
+          const d = new Date(integerMs);
+          clockMain.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          clockMs.textContent = `.${pad(d.getMilliseconds(), 3)}`;
           updateTarget(integerMs);
-
-          if (seconds !== state.lastDateSecond) {
-            updateDateLine(date);
-            state.lastDateSecond = seconds;
-          }
-
+          if (d.getSeconds() !== state.lastDateSecond) { updateDateLine(d); state.lastDateSecond = d.getSeconds(); }
           state.lastRenderedMs = integerMs;
         }
-
         updateFps(timestamp);
         requestAnimationFrame(render);
       }
-
       targetForm.addEventListener('submit', (event) => {
         event.preventDefault();
-        const parsed = parseTargetTime(targetTime.value);
-
-        if (parsed == null) {
-          targetStatus.textContent = '입력 오류';
-          targetStatus.style.color = 'var(--red)';
-          return;
-        }
-
-        state.targetMs = parsed;
+        const parsed = parseTarget(targetTime.value);
+        if (parsed == null) { targetStatus.textContent = '입력 오류'; targetStatus.style.color = 'var(--red)'; state.armed = false; setBookingReady(false); return; }
+        state.targetMs = parsed; state.armed = true; state.bookingOpened = false;
+        bookingHelp.textContent = '목표 시각이 되면 예매 시작 버튼이 활성화됩니다.';
         updateTarget(Math.floor(correctedNow()));
       });
-
+      bookingButton.addEventListener('click', () => openBookingWindow('manual'));
+      syncButton.addEventListener('click', syncWithServer);
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          resyncClock({ hard: true });
-          loopStatus.textContent = 'RAF ACTIVE';
-        } else {
-          loopStatus.textContent = 'PAUSED BY TAB';
-        }
+        if (document.visibilityState === 'visible') { resyncLocalClock(true); loopStatus.textContent = 'RAF ACTIVE'; syncWithServer(); }
+        else loopStatus.textContent = 'PAUSED BY TAB';
       });
-
-      resyncClock({ hard: true });
-      state.targetMs = parseTargetTime(targetTime.value);
+      resyncLocalClock(true);
+      state.targetMs = parseTarget(targetTime.value);
+      updateTarget(Math.floor(correctedNow()));
+      syncWithServer();
+      setInterval(syncWithServer, 60000);
       requestAnimationFrame(render);
     })();
   </script>
