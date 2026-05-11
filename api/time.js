@@ -1,4 +1,4 @@
-const DEFAULT_TICKETLINK_URL = 'https://www.ticketlink.co.kr/';
+const DEFAULT_TICKETLINK_URL = 'https://m.ticketlink.co.kr/sports/137/57';
 const DEFAULT_UTC_API_URL = 'https://worldtimeapi.org/api/timezone/Etc/UTC';
 
 function setCorsHeaders(res) {
