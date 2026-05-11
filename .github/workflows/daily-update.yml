@@ -1,0 +1,39 @@
+name: Daily Samsung Lions booking update
+
+on:
+  schedule:
+    # 09:00 KST = 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-booking-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run scraper
+        run: npm run scrape
+        env:
+          TICKETLINK_SAMSUNG_URL: https://m.ticketlink.co.kr/sports/137/57
+
+      - name: Commit updated booking data
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: chore: update samsung lions booking data
+          file_pattern: booking-data.json
