@@ -1,0 +1,12 @@
+{
+  "name": "kbo-booking-clock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Samsung Lions Ticketlink booking countdown helper",
+  "scripts": {
+    "scrape": "node scripts/scraper.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.22.3"
+  }
+}
