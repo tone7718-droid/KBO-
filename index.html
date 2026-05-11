@@ -28,7 +28,7 @@
         </div>
       </section>
       <section class="grid" aria-label="서버 시계 성능 정보">
-        <article class="card"><p class="label">서버 Offset</p><p class="value" id="serverOffsetText">+0.000 ms</p><p class="help">서버 시각 - 로컬 시각입니다. 표시 시계에 반영됩니다.</p></article>
+        <article class="card"><p class="label">서버 Offset</p><p class="value" id="serverOffsetText">+0.000 ms</p><p class="help">Vercel 프록시가 읽은 티켓링크 Date 헤더 기준 Offset입니다.</p></article>
         <article class="card"><p class="label">응답 지연 RTT</p><p class="value" id="rttText">-- ms</p><p class="help">3회 측정 중 가장 빠른 응답을 기준으로 동기화합니다.</p></article>
         <article class="card"><p class="label">렌더링 루프</p><p class="value" id="fpsText">-- FPS</p><p class="help">requestAnimationFrame 기반으로 갱신합니다.</p></article>
         <article class="card"><p class="label">동기화 상태</p><p class="value" id="syncStatusText">LOCAL</p><p class="help" id="syncSourceText">서버 동기화 전에는 로컬 보정값을 사용합니다.</p></article>
@@ -41,9 +41,9 @@
             <div class="row"><button class="btn" type="submit">기준 시각 적용</button><label class="check" for="autoOpen"><input id="autoOpen" type="checkbox" checked />도달 시 자동 새 창 열기</label></div>
           </form>
           <div class="result"><div class="mini"><span>남은 시간</span><strong id="countdownText">--:--:--.---</strong></div><div class="mini"><span>상태</span><strong id="targetStatus">대기 중</strong></div></div>
-          <div class="sync"><h2 class="title">서버 시간 동기화</h2><div class="field"><label for="timeApiUrl">시간 API 또는 서버 URL</label><input id="timeApiUrl" type="url" inputmode="url" value="https://worldtimeapi.org/api/timezone/Etc/UTC" /></div><div class="row"><button class="btn secondary" id="syncButton" type="button">서버 시간 다시 동기화</button><span class="check" id="lastSyncedText">아직 동기화 전</span></div></div>
+          <div class="sync"><h2 class="title">서버 시간 동기화</h2><div class="field"><label for="timeApiUrl">Vercel 시간 프록시 경로</label><input id="timeApiUrl" type="text" inputmode="url" value="/api/time" /></div><div class="row"><button class="btn secondary" id="syncButton" type="button">서버 시간 다시 동기화</button><span class="check" id="lastSyncedText">아직 동기화 전</span></div></div>
         </div>
-        <aside class="note"><h2 class="title">구현 방식</h2><p><code>fetch</code>로 세계 표준시 API 또는 서버 응답의 <code>Date</code> 헤더를 읽고, 요청 시작·응답 완료의 중간 지점을 기준으로 서버와 로컬 시계의 오차를 계산합니다. 표시 시각은 <code>performance.now()</code> + 로컬 보정값 + 서버 <code>Offset</code>으로 계산하고, 화면 갱신은 <code>requestAnimationFrame</code>으로 처리합니다.</p></aside>
+        <aside class="note"><h2 class="title">구현 방식</h2><p><code>/api/time</code> Vercel Serverless Function이 티켓링크 서버의 <code>Date</code> 헤더를 읽어 JSON으로 반환합니다. 클라이언트는 같은 출처의 프록시만 호출하므로 외부 서버의 CORS 제약을 피할 수 있습니다. 표시 시각은 <code>performance.now()</code> + 로컬 보정값 + 서버 <code>Offset</code>으로 계산하고, 화면 갱신은 <code>requestAnimationFrame</code>으로 처리합니다.</p></aside>
       </section>
     </main>
     <p class="footer">자동 새 창 열기는 브라우저 팝업 차단 정책에 의해 막힐 수 있습니다. 막히면 활성화된 “예매 시작” 버튼을 직접 누르면 됩니다.</p>
@@ -52,7 +52,7 @@
     (() => {
       'use strict';
       const $ = (id) => document.getElementById(id);
-      const DEFAULT_TIME_API = 'https://worldtimeapi.org/api/timezone/Etc/UTC';
+      const DEFAULT_TIME_API = '/api/time';
       const clockMain = $('clockMain'), clockMs = $('clockMs'), dateText = $('dateText'), timeZoneText = $('timeZoneText');
       const serverOffsetText = $('serverOffsetText'), rttText = $('rttText'), fpsText = $('fpsText'), syncStatusText = $('syncStatusText'), syncSourceText = $('syncSourceText');
       const targetForm = $('targetForm'), targetTime = $('targetTime'), bookingUrl = $('bookingUrl'), autoOpen = $('autoOpen'), countdownText = $('countdownText'), targetStatus = $('targetStatus');
@@ -132,9 +132,11 @@
         }
       }
       function readServerTimeFromJson(data) {
-        for (const key of ['utc_datetime', 'datetime', 'currentDateTime', 'dateTime', 'time']) {
+        for (const key of ['serverIso', 'iso', 'utc_datetime', 'datetime', 'currentDateTime', 'dateTime', 'time']) {
           if (data[key]) { const parsed = Date.parse(data[key]); if (Number.isFinite(parsed)) return parsed; }
         }
+        if (Number.isFinite(data.serverTime)) return data.serverTime;
+        if (Number.isFinite(data.fallbackServerTime)) return data.fallbackServerTime;
         if (Number.isFinite(data.unixtime)) return data.unixtime * 1000;
         if (Number.isFinite(data.unixTime)) return data.unixTime * 1000;
         if (Number.isFinite(data.epoch)) return data.epoch;
@@ -148,7 +150,7 @@
         if ((response.headers.get('content-type') || '').includes('application/json')) {
           try {
             serverMs = readServerTimeFromJson(await response.clone().json());
-            if (serverMs != null) sourceType = 'JSON time API';
+            if (serverMs != null) sourceType = 'Vercel time proxy';
           } catch { serverMs = null; }
         }
         if (serverMs == null) {
