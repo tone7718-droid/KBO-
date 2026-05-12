@@ -146,6 +146,21 @@ function inferBookingUrl(href, text) {
   return looksLikeTicketLink && looksLikeBooking ? url : null;
 }
 
+function extractIdFromUrl(url) {
+  if (!url) return null;
+  const s = String(url);
+  // 1) 경로 꼬리 숫자: /sports/137/57/12345 또는 /product/123456
+  let m = s.match(/\/(\d{5,})(?:[/?#]|$)/);
+  if (m) return { id: m[1], src: 'url-path' };
+  // 2) 쿼리스트링의 ID 키: ?scheduleId=12345 / &productId=... / &gameId=... / &p=... / &no=...
+  m = s.match(/[?&](?:scheduleId|gameId|matchId|productId|productNo|scheduleNo|game|schedule|id|p|no)=(\d{4,})/i);
+  if (m) return { id: m[1], src: 'url-query' };
+  // 3) URL 어디든 6자리 이상 숫자 (마지막 보루)
+  m = s.match(/(\d{6,})/);
+  if (m) return { id: m[1], src: 'url-digits' };
+  return null;
+}
+
 function dedupeGames(games) {
   const map = new Map();
   for (const game of games) {
@@ -248,12 +263,21 @@ async function harvestScheduleIds(page) {
       return candidates[0];
     }
 
-    // 카드 후보: 삼성/라이온즈 텍스트를 포함하면서 자식 수가 적당한(스케줄 한 건) 컨테이너
-    const cardSelector = 'li, article, [role="listitem"]';
-    const cards = [...document.querySelectorAll(cardSelector)].filter((el) => {
+    // 카드 후보:
+    //  1) li/article/[role=listitem] — 일반적인 SPA 패턴
+    //  2) div / section — data-*-id 속성이 있을 때만 (그 외 div는 너무 많음)
+    const candidateNodes = new Set();
+    for (const el of document.querySelectorAll('li, article, [role="listitem"]')) candidateNodes.add(el);
+    for (const el of document.querySelectorAll('[data-schedule-id], [data-scheduleid], [data-game-id], [data-gameid], [data-product-id], [data-productid], [data-match-id], [data-matchid], [data-id]')) {
+      // data-id가 있는 노드 자체 + 조상 div/section 한 단계
+      candidateNodes.add(el);
+      const ancestor = el.closest('li, article, [role="listitem"], section, div');
+      if (ancestor) candidateNodes.add(ancestor);
+    }
+    const cards = [...candidateNodes].filter((el) => {
       const t = el.innerText || '';
       if (!/삼성|라이온즈|Samsung|Lions/i.test(t)) return false;
-      return el.children.length > 0 && el.children.length < 40 && t.length < 800;
+      return el.children.length > 0 && el.children.length < 60 && t.length < 1200;
     });
 
     const fromCards = [];
@@ -295,10 +319,10 @@ function mergeSchedules(games, harvest, urlPattern) {
         break;
       }
     }
-    // bookingUrl 꼬리 숫자에서 scheduleId 추출 (anchor에 이미 들어있던 경우)
+    // bookingUrl에서 직접 scheduleId 추출 (path / query / digits 순서로 시도)
     if (!game.scheduleId && game.bookingUrl) {
-      const m = String(game.bookingUrl).match(/\/(\d{5,})(?:[/?#]|$)/);
-      if (m) { game.scheduleId = m[1]; game.scheduleSource = 'bookingUrl-tail'; }
+      const found = extractIdFromUrl(game.bookingUrl);
+      if (found) { game.scheduleId = found.id; game.scheduleSource = `bookingUrl-${found.src}`; }
     }
   }
 
@@ -701,6 +725,13 @@ async function scrape() {
     const merged = mergeSchedules(rawGames, harvest, BOOKING_URL_PATTERN);
     const games = dedupeGames(merged.games);
     log(`final games=${games.length} (pre-open=${games.filter((g) => g.preOpen).length}, with scheduleId=${games.filter((g) => g.scheduleId).length})`);
+
+    // scheduleId 수확이 0이면 자동으로 진단 정보 노출 — 다음 정규식 패치에 단서가 됩니다.
+    if (games.length > 0 && games.filter((g) => g.scheduleId).length === 0) {
+      log('--- DIAGNOSTIC (scheduleId=0): first 5 bookingUrls ---');
+      for (const g of games.slice(0, 5)) log(`  url: ${g.bookingUrl} | title: ${(g.title || '').slice(0, 80)}`);
+      log('--- END DIAGNOSTIC ---');
+    }
 
     const payload = {
       team: 'Samsung Lions',
