@@ -13,7 +13,8 @@
     .time-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.time-card{padding:22px;border:1px solid var(--border);border-radius:22px;background:rgba(2,6,23,.42);text-align:center}.time-label{margin:0 0 10px;color:var(--soft);font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}.time-value{margin:0;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:clamp(24px,4.5vw,54px);font-weight:900;line-height:1;letter-spacing:-.06em;font-variant-numeric:tabular-nums}.time-value.accent{color:var(--accent)}.time-value.green{color:var(--green)}.date-line{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px 16px;margin-top:22px;color:var(--muted);font-size:14px}.date-line strong{color:var(--text)}
     .booking-action{margin-top:30px;display:grid;gap:12px;justify-items:center}.booking-btn{width:min(420px,100%);border:1px solid rgba(56,189,248,.18);border-radius:999px;padding:22px 30px;color:rgba(248,250,252,.56);background:rgba(15,23,42,.84);font-size:clamp(24px,4vw,36px);font-weight:950;letter-spacing:-.04em;cursor:not-allowed;transition:transform .12s ease,filter .12s ease,background .12s ease}.booking-btn.ready{color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));border-color:transparent;cursor:pointer;box-shadow:0 26px 80px rgba(56,189,248,.28),0 0 0 8px rgba(56,189,248,.08);animation:readyPulse .78s ease-in-out infinite alternate}.booking-btn.ready:hover{filter:brightness(1.08);transform:translateY(-1px)}.booking-btn.ready:active{transform:translateY(0)}.booking-help{min-height:20px;margin:0;color:var(--muted);font-size:14px;line-height:1.5;text-align:center}@keyframes readyPulse{from{box-shadow:0 22px 70px rgba(56,189,248,.22),0 0 0 4px rgba(56,189,248,.06);transform:scale(1)}to{box-shadow:0 30px 96px rgba(52,211,153,.32),0 0 0 13px rgba(52,211,153,.1);transform:scale(1.015)}}
     .metric-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--border)}.metric{min-height:122px;padding:20px;background:var(--panel)}.metric-label{margin:0 0 10px;color:var(--soft);font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}.metric-value{margin:0;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-size:clamp(18px,2.7vw,30px);font-weight:850;line-height:1.1;font-variant-numeric:tabular-nums}.metric-help{margin:10px 0 0;color:var(--soft);font-size:12px;line-height:1.45}.control{display:grid;grid-template-columns:1.25fr .75fr;gap:1px;background:var(--border)}.box,.note{padding:24px;background:var(--strong)}.title{margin:0 0 16px;font-size:15px;font-weight:950;letter-spacing:-.02em}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:end}.field label{display:block;margin-bottom:8px;color:var(--muted);font-size:12px;font-weight:850;letter-spacing:.08em}.field input{width:100%;border:1px solid var(--border);border-radius:14px;background:rgba(2,6,23,.72);color:var(--text);padding:14px 15px;outline:none;color-scheme:dark;font-family:"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;font-weight:750}.field input:focus{border-color:rgba(125,211,252,.45);box-shadow:0 0 0 4px rgba(56,189,248,.1)}.row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px}.btn{border:0;border-radius:14px;padding:14px 18px;color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));font-weight:950;cursor:pointer;white-space:nowrap;transition:.14s}.btn.secondary{color:var(--text);background:rgba(30,41,59,.94);border:1px solid var(--border)}.btn:hover{filter:brightness(1.08);transform:translateY(-1px)}.note p{margin:0;color:var(--muted);line-height:1.7;font-size:14px}.note code{color:var(--accent);font-family:"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;font-size:.92em}.footer{margin-top:14px;color:var(--soft);text-align:center;font-size:12px;line-height:1.6}
-    .auto-games{padding:24px;background:rgba(2,6,23,.62);border-bottom:1px solid var(--border)}.auto-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}.auto-status{margin:0;color:var(--muted);font-size:13px;line-height:1.5}.game-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.game-btn{border:1px solid var(--border);border-radius:18px;background:rgba(15,23,42,.88);color:var(--text);padding:16px;text-align:left;cursor:pointer;transition:.14s}.game-btn:hover,.game-btn.selected{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 4px rgba(56,189,248,.08);transform:translateY(-1px)}.game-date{display:block;color:var(--accent);font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;font-weight:850}.game-title{display:block;margin-top:8px;font-weight:950;line-height:1.35}.game-meta{display:block;margin-top:6px;color:var(--soft);font-size:12px;line-height:1.4}
+    .auto-games{padding:24px;background:rgba(2,6,23,.62);border-bottom:1px solid var(--border)}.auto-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}.auto-status{margin:0;color:var(--muted);font-size:13px;line-height:1.5}.auto-status.warn{color:var(--amber)}.auto-status.error{color:var(--red)}.game-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.game-list.empty{display:none}.game-btn{border:1px solid var(--border);border-radius:18px;background:rgba(15,23,42,.88);color:var(--text);padding:16px;text-align:left;cursor:pointer;transition:.14s}.game-btn:hover,.game-btn.selected{border-color:rgba(56,189,248,.55);box-shadow:0 0 0 4px rgba(56,189,248,.08);transform:translateY(-1px)}.game-date{display:block;color:var(--accent);font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;font-weight:850}.game-title{display:block;margin-top:8px;font-weight:950;line-height:1.35}.game-meta{display:block;margin-top:6px;color:var(--soft);font-size:12px;line-height:1.4}
+    .fallback{display:none;margin-top:14px;padding:18px;border:1px dashed rgba(251,191,36,.45);border-radius:18px;background:rgba(251,191,36,.06)}.fallback.show{display:block}.fallback h3{margin:0 0 8px;font-size:14px;font-weight:950;color:var(--amber);letter-spacing:.04em}.fallback p{margin:0 0 12px;color:var(--muted);font-size:13px;line-height:1.55}.fallback .chips{display:flex;flex-wrap:wrap;gap:8px}.chip{border:1px solid var(--border);background:rgba(15,23,42,.85);color:var(--text);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:850;cursor:pointer;transition:.14s}.chip:hover{border-color:rgba(56,189,248,.55);transform:translateY(-1px)}.box.highlight{box-shadow:inset 0 0 0 1px rgba(251,191,36,.45),0 0 30px rgba(251,191,36,.06)}
     @media(max-width:920px){.time-grid{grid-template-columns:1fr}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.control{grid-template-columns:1fr}}@media(max-width:620px){body{padding:16px 10px}.topbar{align-items:flex-start;flex-direction:column}.hero{padding:24px 14px}.metric-grid,.form-grid{grid-template-columns:1fr}.btn,.booking-btn{width:100%}.time-card{padding:18px 12px}.time-value{font-size:clamp(30px,13vw,54px)}}
   </style>
 </head>
@@ -36,6 +37,16 @@
       <section class="auto-games" aria-label="오늘 경기 자동 예매 버튼">
         <div class="auto-head"><div><h2 class="title">오늘 삼성 라이온즈 예매 버튼</h2><p class="auto-status" id="bookingDataStatus">booking-data.json을 불러오는 중입니다.</p></div><button class="btn secondary" id="reloadBookingDataButton" type="button">경기 데이터 새로고침</button></div>
         <div class="game-list" id="gameList"></div>
+        <div class="fallback" id="fallbackPanel" role="alert">
+          <h3>자동 데이터를 사용할 수 없습니다</h3>
+          <p>티켓링크 스크래핑이 실패했거나 오늘 경기가 없습니다. 아래에서 <strong>대상 경기 수동 설정</strong>에 예매 URL과 목표 시각을 직접 입력해 주세요. 자주 쓰는 시각은 다음 칩으로 즉시 적용할 수 있습니다.</p>
+          <div class="chips" id="targetTimePresets" aria-label="자주 쓰는 목표 시각">
+            <button type="button" class="chip" data-preset-time="11:00:00.000">11:00:00.000 정각</button>
+            <button type="button" class="chip" data-preset-time="14:00:00.000">14:00:00.000</button>
+            <button type="button" class="chip" data-preset-time="20:00:00.000">20:00:00.000</button>
+            <button type="button" class="chip" data-preset-url="https://m.ticketlink.co.kr/sports/137/57">삼성 라이온즈 모바일 메인</button>
+          </div>
+        </div>
       </section>
       <section class="metric-grid" aria-label="서버 동기화 정보">
         <article class="metric"><p class="metric-label">서버 Offset</p><p class="metric-value" id="serverOffsetText">+0.000 ms</p><p class="metric-help">/api/time 기준 서버-로컬 오차입니다.</p></article>
@@ -71,6 +82,7 @@
       const serverOffsetText = $('serverOffsetText'), rttText = $('rttText'), syncStatusText = $('syncStatusText'), syncSourceText = $('syncSourceText'), fpsText = $('fpsText');
       const targetForm = $('targetForm'), targetTimeInput = $('targetTimeInput'), targetUrlInput = $('targetUrlInput'), syncButton = $('syncButton'), lastSyncedText = $('lastSyncedText'), loopStatus = $('loopStatus');
       const bookingDataStatus = $('bookingDataStatus'), gameList = $('gameList'), reloadBookingDataButton = $('reloadBookingDataButton');
+      const fallbackPanel = $('fallbackPanel'), targetTimePresets = $('targetTimePresets'), manualBox = document.querySelector('.control .box');
 
       const pad = (v, w = 2) => String(v).padStart(w, '0');
       const signed = (v, d = 3) => `${v >= 0 ? '+' : ''}${v.toFixed(d)}`;
@@ -131,25 +143,62 @@
         const data = await response.json();
         const serverMs = readServerTimeFromJson(data);
         if (!Number.isFinite(serverMs)) throw new Error(data.message || '서버 시각을 읽지 못했습니다.');
-        const midpoint = (start + end) / 2;
-        return { offset: serverMs - localFromPerf(midpoint), rtt, source: data.source || data.preferred || 'server', sourceUrl: data.sourceUrl || TARGET_URL };
+        // proxyRtt가 있으면 클라이언트->Vercel 구간만 RTT로 사용해 Vercel<->티켓링크 구간을 보정
+        const upstreamRtt = Number.isFinite(data.proxyRtt) ? Math.max(0, rtt - data.proxyRtt) : rtt;
+        const midpoint = start + upstreamRtt / 2;
+        return {
+          offset: serverMs - localFromPerf(midpoint),
+          rtt,
+          upstreamRtt,
+          source: data.source || data.preferred || 'server',
+          sourceUrl: data.sourceUrl || TARGET_URL,
+        };
       }
       async function syncWithServer() {
         syncButton.disabled = true; syncStatusText.textContent = 'SYNCING'; syncStatusText.style.color = ''; syncSourceText.textContent = '티켓링크 서버 Date 헤더를 확인 중입니다.';
-        const samples = []; let lastError = null;
-        for (let i = 0; i < 3; i += 1) { try { samples.push(await fetchServerSample()); } catch (error) { lastError = error; } }
+        // 3회 측정을 병렬로 실행하여 전체 동기화 레이턴시를 줄입니다.
+        const settled = await Promise.allSettled([fetchServerSample(), fetchServerSample(), fetchServerSample()]);
+        const samples = [];
+        let lastError = null;
+        for (const result of settled) {
+          if (result.status === 'fulfilled') samples.push(result.value);
+          else lastError = result.reason;
+        }
         if (samples.length) {
-          samples.sort((a, b) => a.rtt - b.rtt); const best = samples[0]; state.serverOffset = best.offset;
-          serverOffsetText.textContent = `${signed(best.offset)} ms`; rttText.textContent = `${best.rtt.toFixed(1)} ms`; syncStatusText.textContent = 'SERVER'; syncStatusText.style.color = 'var(--green)'; syncSourceText.textContent = `${best.source} · ${new URL(best.sourceUrl).hostname}`; lastSyncedText.textContent = `동기화 완료 ${new Date(Math.floor(correctedNow())).toLocaleTimeString('ko-KR')}`;
-        } else { syncStatusText.textContent = 'LOCAL'; syncStatusText.style.color = 'var(--amber)'; syncSourceText.textContent = lastError?.message || '서버 동기화 실패. 로컬 보정값을 사용합니다.'; lastSyncedText.textContent = '동기화 실패'; }
+          samples.sort((a, b) => a.upstreamRtt - b.upstreamRtt);
+          const best = samples[0];
+          // 첫 동기화는 그대로, 이후는 지수가중평균으로 부드럽게 갱신해 jitter를 줄입니다.
+          state.serverOffset = state.serverOffset === 0 ? best.offset : (state.serverOffset * 0.4 + best.offset * 0.6);
+          serverOffsetText.textContent = `${signed(state.serverOffset)} ms`;
+          rttText.textContent = `${best.upstreamRtt.toFixed(1)} ms (총 ${best.rtt.toFixed(0)} ms)`;
+          syncStatusText.textContent = 'SERVER'; syncStatusText.style.color = 'var(--green)';
+          try { syncSourceText.textContent = `${best.source} · ${new URL(best.sourceUrl).hostname}`; } catch { syncSourceText.textContent = best.source; }
+          lastSyncedText.textContent = `동기화 완료 ${new Date(Math.floor(correctedNow())).toLocaleTimeString('ko-KR')}`;
+        } else {
+          syncStatusText.textContent = 'LOCAL'; syncStatusText.style.color = 'var(--amber)';
+          syncSourceText.textContent = lastError?.message || '서버 동기화 실패. 로컬 보정값을 사용합니다.';
+          lastSyncedText.textContent = '동기화 실패';
+        }
         syncButton.disabled = false;
+      }
+      function setFallbackVisible(visible, { variant = 'warn', message } = {}) {
+        fallbackPanel.classList.toggle('show', visible);
+        manualBox.classList.toggle('highlight', visible);
+        bookingDataStatus.classList.remove('warn', 'error');
+        if (visible) bookingDataStatus.classList.add(variant === 'error' ? 'error' : 'warn');
+        if (message) bookingDataStatus.textContent = message;
       }
       function renderGameButtons(games, meta = {}) {
         const today = todayKst();
         const todayGames = games.filter((game) => game.date === today && game.bookingUrl);
         gameList.innerHTML = '';
-        if (!todayGames.length) { bookingDataStatus.textContent = `${today} 기준 자동 생성할 오늘 경기 예매 버튼이 없습니다. 최근 갱신: ${meta.updatedAt || '알 수 없음'}`; return; }
-        bookingDataStatus.textContent = `${today} 오늘 경기 ${todayGames.length}개를 찾았습니다. 최근 갱신: ${meta.updatedAt || '알 수 없음'}`;
+        gameList.classList.toggle('empty', todayGames.length === 0);
+        const updatedAt = meta.updatedAt || '알 수 없음';
+        if (!todayGames.length) {
+          setFallbackVisible(true, { variant: 'warn', message: `${today} 기준 오늘 경기 예매 버튼이 없습니다. (최근 갱신: ${updatedAt}) 아래에서 수동으로 설정해 주세요.` });
+          return;
+        }
+        setFallbackVisible(false, { message: `${today} 오늘 경기 ${todayGames.length}개를 찾았습니다. 최근 갱신: ${updatedAt}` });
         todayGames.forEach((game, index) => {
           const button = document.createElement('button');
           button.type = 'button';
@@ -163,13 +212,18 @@
       }
       async function loadBookingData() {
         bookingDataStatus.textContent = 'booking-data.json을 불러오는 중입니다.';
+        bookingDataStatus.classList.remove('warn', 'error');
         try {
           const response = await fetch(`${BOOKING_DATA_PATH}?t=${Date.now()}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           renderGameButtons(Array.isArray(data.games) ? data.games : [], data);
           syncWithServer();
-        } catch (error) { bookingDataStatus.textContent = `booking-data.json 로드 실패: ${error.message}. 수동 TARGET_URL을 사용하세요.`; }
+        } catch (error) {
+          gameList.innerHTML = '';
+          gameList.classList.add('empty');
+          setFallbackVisible(true, { variant: 'error', message: `booking-data.json 로드 실패: ${error.message}. 수동 TARGET_URL/TARGET_TIME을 사용하세요.` });
+        }
       }
       function render(timestamp) {
         if (timestamp - state.lastLocalSyncAt >= 2000) { resyncLocalClock(); state.lastLocalSyncAt = timestamp; }
@@ -189,6 +243,14 @@
       syncButton.addEventListener('click', syncWithServer);
       reloadBookingDataButton.addEventListener('click', loadBookingData);
       bookingButton.addEventListener('click', () => { if (!bookingButton.disabled) window.location.href = TARGET_URL; });
+      targetTimePresets.addEventListener('click', (event) => {
+        const chip = event.target.closest('.chip'); if (!chip) return;
+        const presetTime = chip.dataset.presetTime, presetUrl = chip.dataset.presetUrl;
+        if (presetTime) targetTimeInput.value = presetTime;
+        if (presetUrl) targetUrlInput.value = presetUrl;
+        applyTargetSettings();
+        manualBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { resyncLocalClock(true); loopStatus.textContent = 'RAF ACTIVE'; syncWithServer(); } else loopStatus.textContent = 'PAUSED BY TAB'; });
 
       targetUrlInput.value = TARGET_URL; targetTimeInput.value = TARGET_TIME; updateTargetDisplay(); resyncLocalClock(true); state.targetMs = parseTargetTime(TARGET_TIME); loadBookingData(); setInterval(syncWithServer, 60000); requestAnimationFrame(render);

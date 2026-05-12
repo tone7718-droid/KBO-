@@ -31,9 +31,13 @@ jobs:
         run: npm run scrape
         env:
           TICKETLINK_SAMSUNG_URL: https://m.ticketlink.co.kr/sports/137/57
+          SCRAPER_MODE: ci
+          SCRAPER_HEADLESS: 'true'
+          SCRAPER_KEEP_ON_FAILURE: 'true'
+        continue-on-error: true
 
       - name: Commit updated booking data
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: chore: update samsung lions booking data
+          commit_message: 'chore: update samsung lions booking data'
           file_pattern: booking-data.json

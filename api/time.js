@@ -1,5 +1,24 @@
+/**
+ * 서버 시간 프록시.
+ *
+ * 클라이언트는 이 응답의 serverIso/serverTime 을 기준으로
+ * 로컬 시계의 offset을 계산합니다. proxyRtt(서버측 왕복시간)를
+ * 함께 돌려주면 클라이언트가 자기 RTT에서 이를 빼고
+ * 미드포인트를 보정할 수 있어 정확도가 올라갑니다.
+ */
+
 const DEFAULT_TICKETLINK_URL = 'https://m.ticketlink.co.kr/sports/137/57';
 const DEFAULT_UTC_API_URL = 'https://worldtimeapi.org/api/timezone/Etc/UTC';
+
+const UPSTREAM_TIMEOUT_MS = Number(process.env.TIME_UPSTREAM_TIMEOUT_MS || 1500);
+
+const BROWSERY_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache',
+};
 
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,24 +32,18 @@ function setCorsHeaders(res) {
 function parseJsonServerTime(data) {
   if (!data || typeof data !== 'object') return null;
 
-  const textFields = ['utc_datetime', 'datetime', 'currentDateTime', 'dateTime', 'time', 'serverIso', 'iso'];
-  for (const key of textFields) {
+  for (const key of ['utc_datetime', 'datetime', 'currentDateTime', 'dateTime', 'time', 'serverIso', 'iso']) {
     if (data[key]) {
       const parsed = Date.parse(data[key]);
       if (Number.isFinite(parsed)) return parsed;
     }
   }
-
-  const secondFields = ['unixtime', 'unixTime', 'unix'];
-  for (const key of secondFields) {
+  for (const key of ['unixtime', 'unixTime', 'unix']) {
     if (Number.isFinite(data[key])) return data[key] * 1000;
   }
-
-  const millisecondFields = ['serverTime', 'epoch', 'epochMs', 'timestamp', 'timeMs'];
-  for (const key of millisecondFields) {
+  for (const key of ['serverTime', 'epoch', 'epochMs', 'timestamp', 'timeMs']) {
     if (Number.isFinite(data[key])) return data[key];
   }
-
   return null;
 }
 
@@ -44,37 +57,34 @@ function normalizeUrl(rawUrl, fallback) {
   }
 }
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+}
+
 async function fetchDateHeaderTime(url) {
   const startedAt = Date.now();
   let response;
-
   try {
-    response = await fetch(url, {
+    response = await withTimeout(fetch(url, {
       method: 'HEAD',
       cache: 'no-store',
       redirect: 'follow',
-      headers: {
-        'User-Agent': 'KBO-Precision-Clock/1.0',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    });
+      headers: BROWSERY_HEADERS,
+    }), UPSTREAM_TIMEOUT_MS, 'HEAD');
   } catch {
     response = null;
   }
 
   if (!response || !response.headers.get('date')) {
-    response = await fetch(url, {
+    response = await withTimeout(fetch(url, {
       method: 'GET',
       cache: 'no-store',
       redirect: 'follow',
-      headers: {
-        Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*',
-        'User-Agent': 'KBO-Precision-Clock/1.0',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    });
+      headers: BROWSERY_HEADERS,
+    }), UPSTREAM_TIMEOUT_MS, 'GET');
   }
 
   const endedAt = Date.now();
@@ -100,17 +110,17 @@ async function fetchDateHeaderTime(url) {
 
 async function fetchWorldTimeApi(url) {
   const startedAt = Date.now();
-  const response = await fetch(url, {
+  const response = await withTimeout(fetch(url, {
     method: 'GET',
     cache: 'no-store',
     redirect: 'follow',
     headers: {
       Accept: 'application/json, text/plain, */*',
-      'User-Agent': 'KBO-Precision-Clock/1.0',
+      'User-Agent': BROWSERY_HEADERS['User-Agent'],
       'Cache-Control': 'no-cache',
       Pragma: 'no-cache',
     },
-  });
+  }), UPSTREAM_TIMEOUT_MS, 'time-api');
   const endedAt = Date.now();
 
   let serverTime = null;
@@ -147,13 +157,8 @@ async function fetchWorldTimeApi(url) {
 export default async function handler(req, res) {
   setCorsHeaders(res);
 
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ ok: false, message: 'Method Not Allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, message: 'Method Not Allowed' });
 
   const ticketlinkUrl = normalizeUrl(
     req.query?.target || process.env.TICKETLINK_TIME_URL || process.env.TIME_TARGET_URL,
@@ -161,36 +166,38 @@ export default async function handler(req, res) {
   );
   const utcApiUrl = normalizeUrl(process.env.TIME_API_URL, DEFAULT_UTC_API_URL);
 
+  // 티켓링크와 폴백 API를 동시에 시작하고, 티켓링크가 빠르면 그걸,
+  // 실패하면 그 시점에 이미 진행 중인 폴백을 그대로 활용해 레이턴시를 최소화합니다.
+  const ticketlinkPromise = fetchDateHeaderTime(ticketlinkUrl);
+  const fallbackPromise = fetchWorldTimeApi(utcApiUrl).catch((err) => ({ __error: err }));
+
   try {
-    const ticketlinkTime = await fetchDateHeaderTime(ticketlinkUrl);
-
-    return res.status(200).json({
-      ok: true,
-      preferred: 'ticketlink',
-      ...ticketlinkTime,
-    });
+    const ticketlinkTime = await ticketlinkPromise;
+    return res.status(200).json({ ok: true, preferred: 'ticketlink', ...ticketlinkTime });
   } catch (ticketlinkError) {
-    try {
-      const fallbackTime = await fetchWorldTimeApi(utcApiUrl);
-
+    const fallback = await fallbackPromise;
+    if (fallback && !fallback.__error) {
       return res.status(200).json({
         ok: true,
         preferred: 'fallback-time-api',
-        ...fallbackTime,
+        ...fallback,
         ticketlinkError: ticketlinkError.message,
-      });
-    } catch (fallbackError) {
-      const now = Date.now();
-
-      return res.status(500).json({
-        ok: false,
-        message: 'Failed to synchronize server time',
-        ticketlinkError: ticketlinkError.message,
-        fallbackError: fallbackError.message,
-        fallbackServerTime: now,
-        fallbackIso: new Date(now).toISOString(),
-        source: 'vercel-local-fallback',
       });
     }
+    const now = Date.now();
+    return res.status(200).json({
+      ok: false,
+      message: 'Failed to synchronize server time. Using Vercel local clock.',
+      ticketlinkError: ticketlinkError.message,
+      fallbackError: fallback?.__error?.message || 'unknown',
+      serverTime: now,
+      serverIso: new Date(now).toISOString(),
+      // 클라이언트가 fallbackServerTime 키도 읽도록 호환성 유지
+      fallbackServerTime: now,
+      fallbackIso: new Date(now).toISOString(),
+      source: 'vercel-local-fallback',
+      sourceUrl: ticketlinkUrl,
+      proxyRtt: 0,
+    });
   }
 }
