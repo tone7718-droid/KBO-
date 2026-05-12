@@ -9,6 +9,7 @@
     "scrape:headful": "cross-env SCRAPER_MODE=local SCRAPER_HEADLESS=false SCRAPER_DEBUG=1 node scripts/scraper.js",
     "scrape:ci": "cross-env SCRAPER_MODE=ci SCRAPER_HEADLESS=true node scripts/scraper.js",
     "scrape:debug": "cross-env SCRAPER_DEBUG=1 node scripts/scraper.js",
+    "scrape:attach": "cross-env SCRAPER_MODE=local SCRAPER_ATTACH_URL=http://localhost:9222 node scripts/scraper.js",
     "serve": "npx --yes serve@latest -l 5173 ."
   },
   "dependencies": {

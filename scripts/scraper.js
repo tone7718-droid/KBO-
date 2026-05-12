@@ -63,6 +63,12 @@ function detectChromePath() {
   return null;
 }
 
+// 사용자가 미리 띄워둔 Chrome에 CDP로 연결합니다. 가장 강력한 우회 방지:
+// Chrome은 평범하게 시작되었고 우리는 한 탭만 빌려 쓰는 모양새입니다.
+// 사용법: chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\temp\kbo-chrome"
+// 그 다음: $env:SCRAPER_ATTACH_URL="http://localhost:9222"; npm run scrape:attach
+const ATTACH_URL = process.env.SCRAPER_ATTACH_URL || '';
+
 // 티켓링크가 차단 페이지를 띄울 때 노출되는 시그니처 문구
 const BLOCK_PAGE_SIGNATURES = [
   '비정상적인 활동',
@@ -447,15 +453,22 @@ async function configurePage(page) {
   //  - window.chrome.runtime: 기본 누락 → 일반 Chrome은 객체 존재
   //  - navigator.plugins: 기본 빈 배열 → 일반 Chrome은 PDF Viewer 포함
   //  - navigator.permissions.query: notifications가 'denied'로 강제 응답되는 결함 보정
+  //  - WebGL UNMASKED_VENDOR/RENDERER: SwiftShader 노출이면 봇 시그니처
+  //  - Battery/Connection: 일반 Chrome에는 존재
   await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    // prototype에서 webdriver를 제거 (configurable이면 통과, 아니면 무시)
+    try { delete Object.getPrototypeOf(navigator).webdriver; } catch { /* ignore */ }
+    Object.defineProperty(navigator, 'webdriver', { configurable: true, get: () => undefined });
     Object.defineProperty(navigator, 'language', { get: () => 'ko-KR' });
     Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
 
     if (!window.chrome) Object.defineProperty(window, 'chrome', { value: {}, writable: true, configurable: true });
-    if (!window.chrome.runtime) window.chrome.runtime = {};
+    if (!window.chrome.runtime) window.chrome.runtime = { id: undefined, connect: () => ({}), sendMessage: () => {} };
     if (!window.chrome.csi) window.chrome.csi = () => ({});
     if (!window.chrome.loadTimes) window.chrome.loadTimes = () => ({});
+    if (!window.chrome.app) window.chrome.app = { isInstalled: false, InstallState: {}, RunningState: {} };
 
     Object.defineProperty(navigator, 'plugins', {
       get: () => {
@@ -463,6 +476,8 @@ async function configurePage(page) {
           { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
           { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
           { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+          { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+          { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: '' },
         ];
         arr.refresh = () => {};
         arr.namedItem = (n) => arr.find((p) => p.name === n) || null;
@@ -488,6 +503,42 @@ async function configurePage(page) {
         }
         return originalQuery(params);
       };
+    }
+
+    // WebGL UNMASKED 정보: 빈 문자열 또는 SwiftShader면 봇으로 식별됨
+    try {
+      const getParam = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function (p) {
+        if (p === 37445) return 'Intel Inc.';
+        if (p === 37446) return 'Intel(R) UHD Graphics 630';
+        return getParam.call(this, p);
+      };
+      if (window.WebGL2RenderingContext) {
+        const getParam2 = WebGL2RenderingContext.prototype.getParameter;
+        WebGL2RenderingContext.prototype.getParameter = function (p) {
+          if (p === 37445) return 'Intel Inc.';
+          if (p === 37446) return 'Intel(R) UHD Graphics 630';
+          return getParam2.call(this, p);
+        };
+      }
+    } catch { /* ignore */ }
+
+    // Battery API (일반 Chrome에 존재)
+    if (typeof navigator.getBattery !== 'function') {
+      navigator.getBattery = () => Promise.resolve({
+        charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1,
+        addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true,
+      });
+    }
+
+    // Network Information API
+    if (!('connection' in navigator)) {
+      Object.defineProperty(navigator, 'connection', {
+        get: () => ({
+          effectiveType: '4g', rtt: 50, downlink: 10, saveData: false,
+          addEventListener: () => {}, removeEventListener: () => {},
+        }),
+      });
     }
   });
 }
@@ -550,38 +601,51 @@ async function autoScroll(page, { steps = 6, delayMs = 700 } = {}) {
 async function scrape() {
   // 시스템 Chrome을 우선 사용. Puppeteer 번들 Chromium은 식별이 더 쉬워서 차단되기 쉽습니다.
   const systemChrome = detectChromePath();
-  log(`mode=${MODE} headless=${HEADLESS} ci=${IS_CI} chrome=${systemChrome || 'bundled'} url=${SOURCE_URL}`);
+  log(`mode=${MODE} headless=${HEADLESS} ci=${IS_CI} chrome=${systemChrome || 'bundled'} attach=${ATTACH_URL || 'no'} url=${SOURCE_URL}`);
 
-  const launchArgs = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-blink-features=AutomationControlled',
-    '--lang=ko-KR,ko',
-    '--window-size=1440,900',
-    '--disable-features=IsolateOrigins,site-per-process,SitePerProcess',
-  ];
-  if (INSECURE) launchArgs.push('--ignore-certificate-errors');
+  let browser;
+  const attached = !!ATTACH_URL;
 
-  // 사용자가 본인 Chrome 프로필을 재사용하면 쿠키/방문이력으로 평판을 만든 상태가 되어
-  // 봇 탐지를 거의 트리거하지 않습니다. CHROME_USER_DATA_DIR로 명시 지정.
-  // 주의: 동일 디렉터리로 Chrome이 이미 떠 있으면 launch가 실패하므로 새 프로필 폴더 권장.
-  const userDataDir = process.env.CHROME_USER_DATA_DIR || undefined;
-  if (userDataDir) log(`using userDataDir=${userDataDir}`);
+  if (attached) {
+    // 사용자가 이미 실행해둔 Chrome에 CDP로 연결만 합니다.
+    // Chrome 자체가 평범하게 시작되어 자동화 흔적이 없으므로 가장 안정적입니다.
+    browser = await puppeteer.connect({
+      browserURL: ATTACH_URL,
+      defaultViewport: null,
+    });
+    log('attached to existing Chrome');
+  } else {
+    const launchArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+      '--lang=ko-KR,ko',
+      '--window-size=1440,900',
+      '--disable-features=IsolateOrigins,site-per-process,SitePerProcess',
+    ];
+    if (INSECURE) launchArgs.push('--ignore-certificate-errors');
 
-  const browser = await puppeteer.launch({
-    headless: HEADLESS ? 'new' : false,
-    executablePath: systemChrome || undefined,
-    userDataDir,
-    // Puppeteer가 기본으로 붙이는 자동화 플래그 제거: navigator.webdriver=true의 일부 원인
-    ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
-    defaultViewport: null,
-    acceptInsecureCerts: INSECURE,
-    args: launchArgs,
-  });
+    // 사용자가 본인 Chrome 프로필을 재사용하면 쿠키/방문이력으로 평판을 만든 상태가 되어
+    // 봇 탐지를 거의 트리거하지 않습니다. CHROME_USER_DATA_DIR로 명시 지정.
+    // 주의: 동일 디렉터리로 Chrome이 이미 떠 있으면 launch가 실패하므로 새 프로필 폴더 권장.
+    const userDataDir = process.env.CHROME_USER_DATA_DIR || undefined;
+    if (userDataDir) log(`using userDataDir=${userDataDir}`);
 
+    browser = await puppeteer.launch({
+      headless: HEADLESS ? 'new' : false,
+      executablePath: systemChrome || undefined,
+      userDataDir,
+      ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
+      defaultViewport: null,
+      acceptInsecureCerts: INSECURE,
+      args: launchArgs,
+    });
+  }
+
+  let page;
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await configurePage(page);
     page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
 
@@ -635,7 +699,13 @@ async function scrape() {
     await fs.writeFile(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     log(`saved ${games.length} item(s) -> ${OUTPUT_PATH}`);
   } finally {
-    await browser.close();
+    // attach 모드: 사용자가 띄운 Chrome은 그대로 두고, 우리가 만든 탭만 닫고 disconnect
+    if (attached) {
+      try { if (page && !page.isClosed()) await page.close(); } catch { /* ignore */ }
+      try { await browser.disconnect(); } catch { /* ignore */ }
+    } else {
+      await browser.close();
+    }
   }
 }
 
@@ -653,17 +723,21 @@ scrape().catch(async (error) => {
   const isBlocked = /^BLOCKED:/.test(msg);
   const isTargetClose = /TargetCloseError|Target closed|page-context-lost/.test(msg);
 
-  if (isBlocked) {
-    console.error('\n[scraper] 티켓링크 봇 탐지에 걸렸습니다.\n', msg);
-    console.error('해결 시도 순서:');
-    console.error('  1) 잠시(10~30분) 기다린 뒤 다시 실행 (IP 평판 회복)');
-    console.error('  2) CHROME_USER_DATA_DIR 지정해 본인 Chrome 프로필 사용:');
-    console.error('     Windows: $env:CHROME_USER_DATA_DIR="$env:LOCALAPPDATA\\Google\\Chrome\\User Data" ; npm run scrape:local');
-    console.error('     macOS:  CHROME_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome" npm run scrape:local');
-    console.error('  3) 위 디렉터리 사용 전에 Chrome을 완전히 종료해야 합니다.');
-  } else if (isTargetClose) {
-    console.error('\n[scraper] 브라우저 세션이 끊겼습니다 (TargetCloseError).');
-    console.error('  대부분 봇 탐지 페이지가 탭을 강제로 닫은 결과입니다. BLOCKED 처리와 동일한 가이드를 따르세요.\n', msg);
+  if (isBlocked || isTargetClose) {
+    if (isBlocked) console.error('\n[scraper] 티켓링크 봇 탐지에 걸렸습니다.\n', msg);
+    else console.error('\n[scraper] 브라우저 세션이 끊겼습니다 (TargetCloseError). 대부분 봇 탐지 페이지가 탭을 강제로 닫은 결과입니다.\n', msg);
+    console.error('\n해결 방법 (가장 확실한 순서):');
+    console.error('  방법 A — 사용자가 직접 띄운 Chrome에 attach (가장 안전):');
+    console.error('    1) Chrome을 모두 종료한 뒤 PowerShell에서:');
+    console.error('       & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\\temp\\kbo-chrome"');
+    console.error('    2) 열린 Chrome 창에서 https://m.ticketlink.co.kr/sports/137/57 를 직접 방문해 정상 로드 확인 (필요시 한 번 클릭/스크롤)');
+    console.error('    3) 다른 PowerShell 창에서: npm run scrape:attach');
+    console.error('');
+    console.error('  방법 B — 본인 Chrome 프로필 디렉터리 재사용 (Chrome 완전 종료 필요):');
+    console.error('    $env:CHROME_USER_DATA_DIR="$env:LOCALAPPDATA\\Google\\Chrome\\User Data"');
+    console.error('    npm run scrape:local');
+    console.error('');
+    console.error('  방법 C — 10~30분 기다린 뒤 재시도 (IP 평판 회복)');
   } else {
     console.error('[scraper] failed:', error);
   }
