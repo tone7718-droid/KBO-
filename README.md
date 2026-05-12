@@ -51,6 +51,18 @@ git push
 | `SCRAPER_NAV_TIMEOUT_MS` | `60000` | 페이지 이동 타임아웃 |
 | `SCRAPER_KEEP_ON_FAILURE` | `true` | 실패해도 기존 `booking-data.json`을 보존 |
 | `SCRAPER_INSECURE` | `0` | 사내 MITM 프록시/방화벽이 TLS를 재서명할 때만 `1`로. CI에서는 절대 켜지 마세요 |
+| `TICKETLINK_BOOKING_URL_PATTERN` | `https://m.ticketlink.co.kr/sports/137/57/{scheduleId}` | scheduleId 사전 수집 시 URL 조립 패턴. 사이트 구조가 바뀌면 여기만 갱신 |
+
+### scheduleId 사전 수집
+
+`booking-data.json`의 각 항목은 `scheduleId` 와 `scheduleSource` 를 함께 가집니다. 스크래퍼는 **예매 버튼이 disabled 상태여도** 다음 4계층을 순회하며 ID를 수확합니다:
+
+1. `<script id="__NEXT_DATA__">` 인라인 JSON (가장 권위적, raw 객체로 팀/날짜까지 추출)
+2. `data-schedule-id` / `data-game-id` / `data-product-id` 등 `data-*` 속성
+3. anchor `href` 꼬리 숫자 (`/sports/137/57/12345`)
+4. `onclick` / 인라인 핸들러 안의 정규식 (`productId: 12345`)
+
+수집된 ID는 `TICKETLINK_BOOKING_URL_PATTERN`에 따라 사전 URL로 조립되며, `preOpen: true` 와 `bookingOpen: false` 로 표시됩니다. 프런트엔드는 이런 항목에 `PRE-OPEN` 뱃지를 표시합니다.
 
 ### 4. 프런트엔드 로컬 미리보기
 

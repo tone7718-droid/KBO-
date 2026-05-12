@@ -30,6 +30,11 @@ const INSECURE = /^(1|true|yes|on)$/i.test(process.env.SCRAPER_INSECURE || '');
 const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
+// 예매 오픈 전 disabled 상태에서도 scheduleId가 노출되면 이 패턴으로 URL을 미리 조립합니다.
+// 환경변수로 오버라이드 가능: TICKETLINK_BOOKING_URL_PATTERN="https://m.ticketlink.co.kr/sports/137/57/{scheduleId}"
+const BOOKING_URL_PATTERN = process.env.TICKETLINK_BOOKING_URL_PATTERN
+  || 'https://m.ticketlink.co.kr/sports/137/57/{scheduleId}';
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function log(...args) {
@@ -109,6 +114,212 @@ function dedupeGames(games) {
     const bKey = `${b.date || '9999-99-99'} ${b.time || '99:99:99'}`;
     return aKey.localeCompare(bKey);
   });
+}
+
+/**
+ * disabled 상태인 예매 버튼을 포함한 모든 게임 카드를 훑어 scheduleId를 수확합니다.
+ *
+ * 4계층 폴백:
+ *   1) <script id="__NEXT_DATA__"> JSON 트리에서 schedule[Id]:N 패턴
+ *   2) data-* 속성 (data-schedule-id / data-scheduleid / data-game-id / data-product-id ...)
+ *   3) anchor href 꼬리 숫자 (/sports/137/57/12345 또는 /12345?from=...)
+ *   4) onclick/href 등 코드 영역 안의 scheduleId=12345 정규식
+ *
+ * 각 카드에서 발견된 후보 중 가장 schedule 같은 키(schedule > game > match > product > id)로
+ * 가중치 기반 선택합니다.
+ */
+async function harvestScheduleIds(page) {
+  return page.evaluate(() => {
+    const NUMERIC_ID = /^\d{4,}$/;
+    const KEY_WEIGHT = (key) => {
+      const k = key.toLowerCase();
+      if (k.includes('schedule')) return 5;
+      if (k.includes('game')) return 4;
+      if (k.includes('match')) return 3;
+      if (k.includes('product')) return 2;
+      if (/(^|[-_])id($|[-_])/.test(k)) return 1;
+      return 0;
+    };
+    const clean = (v) => (v || '').replace(/\s+/g, ' ').trim();
+
+    function walkJsonForSchedules(json, out, depth = 0) {
+      if (!json || depth > 8) return;
+      if (Array.isArray(json)) {
+        for (const item of json) walkJsonForSchedules(item, out, depth + 1);
+        return;
+      }
+      if (typeof json !== 'object') return;
+      // 스케줄로 보이는 객체: scheduleId 또는 (id + gameDate/startTime/awayTeam) 패턴
+      const idKey = Object.keys(json).find((k) => /^(scheduleId|gameId|matchId|productId|id)$/i.test(k));
+      const hasGameShape = ['gameDate', 'startDate', 'startTime', 'gameStartDate', 'awayTeam', 'homeTeam', 'awayTeamName', 'homeTeamName'].some((k) => k in json);
+      if (idKey && hasGameShape && NUMERIC_ID.test(String(json[idKey]))) {
+        out.push({
+          source: 'next-data',
+          scheduleId: String(json[idKey]),
+          idKey,
+          raw: json,
+        });
+      }
+      for (const v of Object.values(json)) walkJsonForSchedules(v, out, depth + 1);
+    }
+
+    function harvestFromNextData() {
+      const out = [];
+      const nodes = [...document.querySelectorAll('script#__NEXT_DATA__, script[type="application/json"], script[type="application/ld+json"]')];
+      for (const node of nodes) {
+        try {
+          const json = JSON.parse(node.textContent || '');
+          walkJsonForSchedules(json, out);
+        } catch { /* not JSON */ }
+      }
+      return out;
+    }
+
+    function harvestFromCard(card) {
+      const candidates = [];
+      const all = [card, ...card.querySelectorAll('*')];
+      for (const node of all) {
+        for (const attr of node.attributes || []) {
+          const name = attr.name.toLowerCase();
+          const val = String(attr.value || '');
+          if (!val) continue;
+          // (2) data-* 속성에서 ID
+          if (name.startsWith('data-') && /id|schedule|game|product|match/.test(name) && NUMERIC_ID.test(val)) {
+            candidates.push({ source: `attr:${name}`, scheduleId: val, weight: KEY_WEIGHT(name) });
+          }
+          // (3) href 꼬리 숫자
+          if (name === 'href') {
+            const m = val.match(/\/(\d{5,})(?:[/?#]|$)/);
+            if (m) candidates.push({ source: 'href-tail', scheduleId: m[1], weight: 3, href: val });
+          }
+          // (4) onclick / href javascript: 안의 scheduleId/productId
+          const codeMatch = val.match(/(?:scheduleId|gameId|matchId|productId)\s*[:=]\s*["']?(\d{4,})/i);
+          if (codeMatch) {
+            const keyName = val.match(/(scheduleId|gameId|matchId|productId)/i)?.[1] || 'productId';
+            candidates.push({ source: `code:${name}`, scheduleId: codeMatch[1], weight: KEY_WEIGHT(keyName) });
+          }
+        }
+      }
+      if (candidates.length === 0) return null;
+      candidates.sort((a, b) => b.weight - a.weight || b.scheduleId.length - a.scheduleId.length);
+      return candidates[0];
+    }
+
+    // 카드 후보: 삼성/라이온즈 텍스트를 포함하면서 자식 수가 적당한(스케줄 한 건) 컨테이너
+    const cardSelector = 'li, article, [role="listitem"]';
+    const cards = [...document.querySelectorAll(cardSelector)].filter((el) => {
+      const t = el.innerText || '';
+      if (!/삼성|라이온즈|Samsung|Lions/i.test(t)) return false;
+      return el.children.length > 0 && el.children.length < 40 && t.length < 800;
+    });
+
+    const fromCards = [];
+    for (const card of cards) {
+      const harvested = harvestFromCard(card);
+      if (!harvested) continue;
+      const disabledBtn = card.querySelector('button[disabled], [aria-disabled="true"], [disabled]');
+      const enabledBookingBtn = card.querySelector('a[href*="ticketlink"], button:not([disabled])');
+      const text = clean(card.innerText).slice(0, 240);
+      fromCards.push({
+        ...harvested,
+        text,
+        cardTag: card.tagName.toLowerCase(),
+        isOpen: !disabledBtn,
+        hasBookingAffordance: !!enabledBookingBtn,
+      });
+    }
+
+    return {
+      nextData: harvestFromNextData(),
+      cards: fromCards,
+    };
+  });
+}
+
+function mergeSchedules(games, harvest, urlPattern) {
+  const buildUrl = (id) => urlPattern.replace('{scheduleId}', encodeURIComponent(id));
+  const nowParts = toKstDateParts();
+
+  // 1) anchor 기반 game ↔ harvest card 텍스트 매칭으로 scheduleId 부착
+  for (const game of games) {
+    if (game.scheduleId) continue;
+    for (const card of harvest.cards) {
+      if (game.title && card.text && (game.title.includes(card.text.slice(0, 30)) || card.text.includes(game.title.slice(0, 30)))) {
+        game.scheduleId = card.scheduleId;
+        game.scheduleSource = card.source;
+        game.bookingOpen = card.isOpen;
+        if (!game.bookingUrl || /\/sports\/\d+\/\d+\/?$/.test(game.bookingUrl)) game.bookingUrl = buildUrl(card.scheduleId);
+        break;
+      }
+    }
+    // bookingUrl 꼬리 숫자에서 scheduleId 추출 (anchor에 이미 들어있던 경우)
+    if (!game.scheduleId && game.bookingUrl) {
+      const m = String(game.bookingUrl).match(/\/(\d{5,})(?:[/?#]|$)/);
+      if (m) { game.scheduleId = m[1]; game.scheduleSource = 'bookingUrl-tail'; }
+    }
+  }
+
+  // 2) anchor에서 못 찾은 scheduleId를 orphan으로 추가 (예매 오픈 전 사전 수집 대비)
+  const knownIds = new Set(games.map((g) => g.scheduleId).filter(Boolean));
+  const orphans = [];
+
+  const pushOrphan = (entry) => {
+    if (knownIds.has(entry.scheduleId)) return;
+    orphans.push(entry);
+    knownIds.add(entry.scheduleId);
+  };
+
+  // 2a) DOM 카드에서 발견된 ID
+  for (const card of harvest.cards) {
+    const text = card.text || '';
+    const opponentMatch = text.match(/(?:삼성\s*(?:vs|VS|대|-)\s*([가-힣A-Z]{2,10})|([가-힣A-Z]{2,10})\s*(?:vs|VS|대|-)\s*삼성)/);
+    pushOrphan({
+      id: `pre-${card.scheduleId}`.slice(0, 16),
+      team: '삼성 라이온즈',
+      opponent: opponentMatch ? (opponentMatch[1] || opponentMatch[2] || '').trim() : '',
+      title: text || '예매 오픈 전 사전 수집',
+      date: parseDateFromText(text, nowParts),
+      time: parseTimeFromText(text),
+      targetTime: '11:00:00.000',
+      scheduleId: card.scheduleId,
+      scheduleSource: card.source,
+      bookingOpen: card.isOpen,
+      bookingUrl: buildUrl(card.scheduleId),
+      sourceUrl: SOURCE_URL,
+      preOpen: true,
+    });
+  }
+
+  // 2b) __NEXT_DATA__ JSON에서 발견된 스케줄 (raw 필드로 풍부한 정보 보유)
+  for (const item of harvest.nextData) {
+    const raw = item.raw || {};
+    const away = raw.awayTeam || raw.awayTeamName || '';
+    const home = raw.homeTeam || raw.homeTeamName || '';
+    const opponent = /삼성|라이온즈/.test(home) ? away : home;
+    const date = raw.gameDate || raw.startDate || raw.gameStartDate
+      ? String(raw.gameDate || raw.startDate || raw.gameStartDate).slice(0, 10).replace(/[./]/g, '-')
+      : null;
+    const time = raw.startTime
+      ? `${String(raw.startTime).match(/(\d{1,2}):(\d{2})/)?.slice(1).map((x) => x.padStart(2, '0')).join(':') || raw.startTime}:00`.replace(/:00:00$/, ':00')
+      : null;
+    pushOrphan({
+      id: `pre-${item.scheduleId}`.slice(0, 16),
+      team: '삼성 라이온즈',
+      opponent: opponent || '',
+      title: [date, time, home && away ? `${away} vs ${home}` : ''].filter(Boolean).join(' ') || `scheduleId ${item.scheduleId}`,
+      date,
+      time: time && /^\d{2}:\d{2}/.test(time) ? (time.length === 5 ? `${time}:00` : time) : null,
+      targetTime: '11:00:00.000',
+      scheduleId: item.scheduleId,
+      scheduleSource: item.source,
+      bookingOpen: null,
+      bookingUrl: buildUrl(item.scheduleId),
+      sourceUrl: SOURCE_URL,
+      preOpen: true,
+    });
+  }
+
+  return { games: [...games, ...orphans], harvested: knownIds.size };
 }
 
 async function extractGames(page) {
@@ -286,17 +497,33 @@ async function scrape() {
     await autoScroll(page, { steps: 6 });
     await waitForBookingContent(page, { totalMs: 6_000 });
 
-    const games = await extractGames(page);
-    log(`extracted ${games.length} candidate game(s)`);
+    const rawGames = await extractGames(page);
+    log(`extracted ${rawGames.length} game(s) from anchors`);
+
+    const harvest = await harvestScheduleIds(page);
+    log(`harvested scheduleId — cards=${harvest.cards.length} nextData=${harvest.nextData.length}`);
+    if (DEBUG) {
+      const sample = [...harvest.cards.slice(0, 3), ...harvest.nextData.slice(0, 3)];
+      log('harvest sample:', JSON.stringify(sample, null, 2).slice(0, 1200));
+    }
+
+    const merged = mergeSchedules(rawGames, harvest, BOOKING_URL_PATTERN);
+    const games = dedupeGames(merged.games);
+    log(`final games=${games.length} (pre-open=${games.filter((g) => g.preOpen).length}, with scheduleId=${games.filter((g) => g.scheduleId).length})`);
 
     const payload = {
       team: 'Samsung Lions',
       teamKo: '삼성 라이온즈',
       sourceUrl: SOURCE_URL,
+      bookingUrlPattern: BOOKING_URL_PATTERN,
       updatedAt: new Date().toISOString(),
       timeZone: KST_TIME_ZONE,
       mode: MODE,
       count: games.length,
+      scheduleIdHarvest: {
+        fromCards: harvest.cards.length,
+        fromNextData: harvest.nextData.length,
+      },
       games,
     };
 
