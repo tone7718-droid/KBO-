@@ -52,6 +52,34 @@ git push
 | `SCRAPER_KEEP_ON_FAILURE` | `true` | 실패해도 기존 `booking-data.json`을 보존 |
 | `SCRAPER_INSECURE` | `0` | 사내 MITM 프록시/방화벽이 TLS를 재서명할 때만 `1`로. CI에서는 절대 켜지 마세요 |
 | `TICKETLINK_BOOKING_URL_PATTERN` | `https://m.ticketlink.co.kr/sports/137/57/{scheduleId}` | scheduleId 사전 수집 시 URL 조립 패턴. 사이트 구조가 바뀌면 여기만 갱신 |
+| `CHROME_PATH` | (자동 탐지) | 시스템 Chrome 실행 파일 경로. 자동 탐지 실패 시 명시. |
+| `CHROME_USER_DATA_DIR` | (없음) | 본인 Chrome 프로필 디렉터리. 쿠키/이력으로 봇 탐지 우회. 지정 전 Chrome 완전 종료 필요. |
+
+### 봇 탐지(ErrorCode:200) 대응
+
+티켓링크는 `navigator.webdriver`, 빠진 `window.chrome.runtime`, `--enable-automation` 같은 클라이언트 사이드 단서로 자동화를 탐지합니다. 이를 발견하면 "시스템에서 비정상적인 활동이 감지되었습니다. ... (ErrorCode:200)" 페이지를 띄우고 탭을 닫아 `TargetCloseError`가 발생합니다.
+
+스크래퍼는 다음을 표준 Chrome 수준으로 정상화합니다:
+
+- `navigator.webdriver = undefined` (Puppeteer 기본 `true` 보정)
+- `window.chrome.runtime / csi / loadTimes` 객체 복원
+- `navigator.plugins`에 PDF Viewer 추가 (빈 배열은 봇 시그니처)
+- `--enable-automation` 플래그 제거
+- 시스템에 설치된 실제 Chrome 사용 (번들 Chromium보다 식별이 어려움)
+
+그래도 차단되면(연속 시도로 IP 평판 하락 가능):
+1. **10~30분 대기** 후 재시도
+2. **본인 Chrome 프로필 사용** (가장 확실):
+   ```powershell
+   # Windows — Chrome을 먼저 모두 종료
+   $env:CHROME_USER_DATA_DIR="$env:LOCALAPPDATA\Google\Chrome\User Data"
+   npm run scrape:local
+   ```
+   ```bash
+   # macOS
+   CHROME_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome" npm run scrape:local
+   ```
+3. 차단 페이지가 떠도 `booking-data.json`은 이전 정상 데이터로 보존됩니다 (`SCRAPER_KEEP_ON_FAILURE`)
 
 ### scheduleId 사전 수집
 

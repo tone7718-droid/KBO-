@@ -9,6 +9,7 @@
  */
 
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const path = require('node:path');
 const puppeteer = require('puppeteer');
 
@@ -34,6 +35,42 @@ const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleW
 // 환경변수로 오버라이드 가능: TICKETLINK_BOOKING_URL_PATTERN="https://m.ticketlink.co.kr/sports/137/57/{scheduleId}"
 const BOOKING_URL_PATTERN = process.env.TICKETLINK_BOOKING_URL_PATTERN
   || 'https://m.ticketlink.co.kr/sports/137/57/{scheduleId}';
+
+// 시스템에 설치된 실제 Chrome 경로를 자동 탐지. Puppeteer 번들 Chromium보다 식별이 어렵습니다.
+// 명시적 오버라이드: CHROME_PATH 환경변수 또는 PUPPETEER_EXECUTABLE_PATH
+function detectChromePath() {
+  const explicit = process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (explicit && fsSync.existsSync(explicit)) return explicit;
+
+  const candidates = process.platform === 'win32' ? [
+    `${process.env['ProgramFiles']}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env['ProgramFiles(x86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env['ProgramFiles']}\\Google\\Chrome Beta\\Application\\chrome.exe`,
+  ] : process.platform === 'darwin' ? [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ] : [
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+  ];
+
+  for (const p of candidates) {
+    try { if (p && fsSync.existsSync(p)) return p; } catch { /* ignore */ }
+  }
+  return null;
+}
+
+// 티켓링크가 차단 페이지를 띄울 때 노출되는 시그니처 문구
+const BLOCK_PAGE_SIGNATURES = [
+  '비정상적인 활동',
+  'ErrorCode:200',
+  '계정이 차단',
+  'Access Denied',
+  'Bot detected',
+];
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -405,9 +442,53 @@ async function configurePage(page) {
 
   await page.emulateTimezone(KST_TIME_ZONE);
 
+  // 표준 Chrome이 가진 속성을 그대로 갖춥니다. Puppeteer가 기본으로 노출하는 자동화 흔적만 정상화:
+  //  - navigator.webdriver: 기본 true → 일반 Chrome은 undefined
+  //  - window.chrome.runtime: 기본 누락 → 일반 Chrome은 객체 존재
+  //  - navigator.plugins: 기본 빈 배열 → 일반 Chrome은 PDF Viewer 포함
+  //  - navigator.permissions.query: notifications가 'denied'로 강제 응답되는 결함 보정
   await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
     Object.defineProperty(navigator, 'language', { get: () => 'ko-KR' });
     Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+
+    if (!window.chrome) Object.defineProperty(window, 'chrome', { value: {}, writable: true, configurable: true });
+    if (!window.chrome.runtime) window.chrome.runtime = {};
+    if (!window.chrome.csi) window.chrome.csi = () => ({});
+    if (!window.chrome.loadTimes) window.chrome.loadTimes = () => ({});
+
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => {
+        const arr = [
+          { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+          { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '' },
+        ];
+        arr.refresh = () => {};
+        arr.namedItem = (n) => arr.find((p) => p.name === n) || null;
+        arr.item = (i) => arr[i] || null;
+        return arr;
+      },
+    });
+
+    Object.defineProperty(navigator, 'mimeTypes', {
+      get: () => {
+        const arr = [{ type: 'application/pdf', description: '', suffixes: 'pdf' }];
+        arr.namedItem = (n) => arr.find((m) => m.type === n) || null;
+        arr.item = (i) => arr[i] || null;
+        return arr;
+      },
+    });
+
+    const originalQuery = window.navigator.permissions?.query?.bind(window.navigator.permissions);
+    if (originalQuery) {
+      window.navigator.permissions.query = (params) => {
+        if (params && params.name === 'notifications') {
+          return Promise.resolve({ state: typeof Notification !== 'undefined' ? Notification.permission : 'prompt', onchange: null });
+        }
+        return originalQuery(params);
+      };
+    }
   });
 }
 
@@ -420,24 +501,35 @@ async function waitForBookingContent(page, { totalMs = 20_000, intervalMs = 500 
   let lastCount = 0;
 
   while (Date.now() - started < totalMs) {
-    const stats = await page.evaluate(() => {
-      const text = document.body?.innerText || '';
-      const anchors = [...document.querySelectorAll('a[href]')];
-      const bookingLikely = anchors.filter((a) => {
-        const href = a.getAttribute('href') || '';
-        const blob = `${href} ${a.innerText || ''}`.toLowerCase();
-        return /ticketlink\.co\.kr/.test(new URL(href, location.href).href || '')
-          && /reserve|booking|product|schedule|예매|구매|좌석/.test(blob);
-      });
-      return {
-        hasSamsung: /삼성|라이온즈|Samsung|Lions/i.test(text),
-        anchorCount: bookingLikely.length,
-        bodyLen: text.length,
-      };
-    });
+    let stats;
+    try {
+      stats = await page.evaluate((signatures) => {
+        const text = document.body?.innerText || '';
+        const anchors = [...document.querySelectorAll('a[href]')];
+        const bookingLikely = anchors.filter((a) => {
+          const href = a.getAttribute('href') || '';
+          const blob = `${href} ${a.innerText || ''}`.toLowerCase();
+          return /ticketlink\.co\.kr/.test(new URL(href, location.href).href || '')
+            && /reserve|booking|product|schedule|예매|구매|좌석/.test(blob);
+        });
+        const blocked = signatures.find((s) => text.includes(s));
+        return {
+          hasSamsung: /삼성|라이온즈|Samsung|Lions/i.test(text),
+          anchorCount: bookingLikely.length,
+          bodyLen: text.length,
+          blocked: blocked || null,
+        };
+      }, BLOCK_PAGE_SIGNATURES);
+    } catch (err) {
+      // 차단 페이지가 탭을 닫는 등 페이지 컨텍스트가 사라진 경우
+      throw new Error(`page-context-lost: ${err.message}`);
+    }
 
     if (DEBUG) log('waitForBookingContent', stats);
 
+    if (stats.blocked) {
+      throw new Error(`BLOCKED: 티켓링크 봇 탐지 페이지 감지 ("${stats.blocked}"). 시스템 Chrome 사용 / CHROME_USER_DATA_DIR 시도 / 또는 잠시 후 재시도하세요.`);
+    }
     if (stats.hasSamsung && stats.anchorCount > 0) return stats;
     if (stats.anchorCount > 4 && stats.anchorCount === lastCount) return stats;
     lastCount = stats.anchorCount;
@@ -456,7 +548,9 @@ async function autoScroll(page, { steps = 6, delayMs = 700 } = {}) {
 }
 
 async function scrape() {
-  log(`mode=${MODE} headless=${HEADLESS} ci=${IS_CI} url=${SOURCE_URL}`);
+  // 시스템 Chrome을 우선 사용. Puppeteer 번들 Chromium은 식별이 더 쉬워서 차단되기 쉽습니다.
+  const systemChrome = detectChromePath();
+  log(`mode=${MODE} headless=${HEADLESS} ci=${IS_CI} chrome=${systemChrome || 'bundled'} url=${SOURCE_URL}`);
 
   const launchArgs = [
     '--no-sandbox',
@@ -465,11 +559,22 @@ async function scrape() {
     '--disable-blink-features=AutomationControlled',
     '--lang=ko-KR,ko',
     '--window-size=1440,900',
+    '--disable-features=IsolateOrigins,site-per-process,SitePerProcess',
   ];
   if (INSECURE) launchArgs.push('--ignore-certificate-errors');
 
+  // 사용자가 본인 Chrome 프로필을 재사용하면 쿠키/방문이력으로 평판을 만든 상태가 되어
+  // 봇 탐지를 거의 트리거하지 않습니다. CHROME_USER_DATA_DIR로 명시 지정.
+  // 주의: 동일 디렉터리로 Chrome이 이미 떠 있으면 launch가 실패하므로 새 프로필 폴더 권장.
+  const userDataDir = process.env.CHROME_USER_DATA_DIR || undefined;
+  if (userDataDir) log(`using userDataDir=${userDataDir}`);
+
   const browser = await puppeteer.launch({
     headless: HEADLESS ? 'new' : false,
+    executablePath: systemChrome || undefined,
+    userDataDir,
+    // Puppeteer가 기본으로 붙이는 자동화 플래그 제거: navigator.webdriver=true의 일부 원인
+    ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
     defaultViewport: null,
     acceptInsecureCerts: INSECURE,
     args: launchArgs,
@@ -544,7 +649,24 @@ async function readPrevious() {
 }
 
 scrape().catch(async (error) => {
-  console.error('[scraper] failed:', error);
+  const msg = String(error?.message || error);
+  const isBlocked = /^BLOCKED:/.test(msg);
+  const isTargetClose = /TargetCloseError|Target closed|page-context-lost/.test(msg);
+
+  if (isBlocked) {
+    console.error('\n[scraper] 티켓링크 봇 탐지에 걸렸습니다.\n', msg);
+    console.error('해결 시도 순서:');
+    console.error('  1) 잠시(10~30분) 기다린 뒤 다시 실행 (IP 평판 회복)');
+    console.error('  2) CHROME_USER_DATA_DIR 지정해 본인 Chrome 프로필 사용:');
+    console.error('     Windows: $env:CHROME_USER_DATA_DIR="$env:LOCALAPPDATA\\Google\\Chrome\\User Data" ; npm run scrape:local');
+    console.error('     macOS:  CHROME_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome" npm run scrape:local');
+    console.error('  3) 위 디렉터리 사용 전에 Chrome을 완전히 종료해야 합니다.');
+  } else if (isTargetClose) {
+    console.error('\n[scraper] 브라우저 세션이 끊겼습니다 (TargetCloseError).');
+    console.error('  대부분 봇 탐지 페이지가 탭을 강제로 닫은 결과입니다. BLOCKED 처리와 동일한 가이드를 따르세요.\n', msg);
+  } else {
+    console.error('[scraper] failed:', error);
+  }
 
   const prev = KEEP_ON_FAILURE ? await readPrevious() : null;
   const hadGames = prev && Array.isArray(prev.games) && prev.games.length > 0;
