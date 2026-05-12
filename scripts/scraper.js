@@ -579,7 +579,7 @@ async function waitForBookingContent(page, { totalMs = 20_000, intervalMs = 500 
     if (DEBUG) log('waitForBookingContent', stats);
 
     if (stats.blocked) {
-      throw new Error(`BLOCKED: 티켓링크 봇 탐지 페이지 감지 ("${stats.blocked}"). 시스템 Chrome 사용 / CHROME_USER_DATA_DIR 시도 / 또는 잠시 후 재시도하세요.`);
+      throw new Error(`BLOCKED: 티켓링크 봇 탐지 페이지 감지 ("${stats.blocked}"). 현재 탭에 차단 페이지가 떠 있습니다. 새 탭/새 창에서 다시 방문하거나 10~30분 대기 후 재시도하세요.`);
     }
     if (stats.hasSamsung && stats.anchorCount > 0) return stats;
     if (stats.anchorCount > 4 && stats.anchorCount === lastCount) return stats;
@@ -644,27 +644,49 @@ async function scrape() {
   }
 
   let page;
+  let userOwnedPage = false; // true이면 사용자 탭이므로 절대 닫지 말 것
   try {
-    page = await browser.newPage();
-    await configurePage(page);
-    page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
+    if (attached) {
+      // 사용자가 직접 navigate해서 봇 탐지를 이미 통과한 탭을 찾아 재사용합니다.
+      // 새 탭을 만들면 evaluateOnNewDocument + goto() 흔적이 다시 남으므로 절대 새 탭 X.
+      const pages = await browser.pages();
+      const ticketlinkTab = pages.find((p) => /ticketlink\.co\.kr/.test(p.url()));
+      if (!ticketlinkTab) {
+        throw new Error(
+          'attach 모드에서 ticketlink.co.kr 탭을 찾지 못했습니다. ' +
+          '먼저 Chrome 창에서 https://m.ticketlink.co.kr/sports/137/57 를 직접 방문해 페이지가 정상 로드된 상태에서 다시 실행하세요.'
+        );
+      }
+      page = ticketlinkTab;
+      userOwnedPage = true;
+      log(`reusing user tab: ${page.url()}`);
+      // configurePage(...) 호출 안 함 — 사용자가 평범하게 연 탭의 상태를 보존
+      // page.goto(...) 호출 안 함 — 이미 사용자가 navigate해 둠
+    } else {
+      page = await browser.newPage();
+      await configurePage(page);
+      page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
 
-    if (DEBUG) {
-      page.on('console', (msg) => log('page', msg.type(), msg.text()));
-      page.on('requestfailed', (req) => log('reqfail', req.url(), req.failure()?.errorText));
-    }
+      if (DEBUG) {
+        page.on('console', (msg) => log('page', msg.type(), msg.text()));
+        page.on('requestfailed', (req) => log('reqfail', req.url(), req.failure()?.errorText));
+      }
 
-    const response = await page.goto(SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    const status = response?.status() ?? 0;
-    log(`initial response status=${status}`);
+      const response = await page.goto(SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+      const status = response?.status() ?? 0;
+      log(`initial response status=${status}`);
 
-    if (status >= 400) {
-      throw new Error(`HTTP ${status} from ${SOURCE_URL}`);
+      if (status >= 400) {
+        throw new Error(`HTTP ${status} from ${SOURCE_URL}`);
+      }
     }
 
     await waitForBookingContent(page, { totalMs: 18_000 });
-    await autoScroll(page, { steps: 6 });
-    await waitForBookingContent(page, { totalMs: 6_000 });
+    if (!attached) {
+      // 사용자 탭은 임의로 스크롤하지 않습니다 (사용자가 보던 위치 보존)
+      await autoScroll(page, { steps: 6 });
+      await waitForBookingContent(page, { totalMs: 6_000 });
+    }
 
     const rawGames = await extractGames(page);
     log(`extracted ${rawGames.length} game(s) from anchors`);
@@ -699,9 +721,11 @@ async function scrape() {
     await fs.writeFile(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
     log(`saved ${games.length} item(s) -> ${OUTPUT_PATH}`);
   } finally {
-    // attach 모드: 사용자가 띄운 Chrome은 그대로 두고, 우리가 만든 탭만 닫고 disconnect
     if (attached) {
-      try { if (page && !page.isClosed()) await page.close(); } catch { /* ignore */ }
+      // 사용자가 직접 띄운 탭은 절대 닫지 말 것. 그냥 disconnect만.
+      if (!userOwnedPage && page) {
+        try { if (!page.isClosed()) await page.close(); } catch { /* ignore */ }
+      }
       try { await browser.disconnect(); } catch { /* ignore */ }
     } else {
       await browser.close();
@@ -727,11 +751,14 @@ scrape().catch(async (error) => {
     if (isBlocked) console.error('\n[scraper] 티켓링크 봇 탐지에 걸렸습니다.\n', msg);
     else console.error('\n[scraper] 브라우저 세션이 끊겼습니다 (TargetCloseError). 대부분 봇 탐지 페이지가 탭을 강제로 닫은 결과입니다.\n', msg);
     console.error('\n해결 방법 (가장 확실한 순서):');
-    console.error('  방법 A — 사용자가 직접 띄운 Chrome에 attach (가장 안전):');
+    console.error('  방법 A — 사용자가 직접 띄운 Chrome 탭에 attach (가장 안전):');
     console.error('    1) Chrome을 모두 종료한 뒤 PowerShell에서:');
     console.error('       & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\\temp\\kbo-chrome"');
-    console.error('    2) 열린 Chrome 창에서 https://m.ticketlink.co.kr/sports/137/57 를 직접 방문해 정상 로드 확인 (필요시 한 번 클릭/스크롤)');
+    console.error('    2) [필수] 열린 Chrome 창의 주소창에 직접 입력하여 방문:');
+    console.error('       https://m.ticketlink.co.kr/sports/137/57');
+    console.error('       페이지가 정상 로드되고 경기 목록이 보일 때까지 기다리세요');
     console.error('    3) 다른 PowerShell 창에서: npm run scrape:attach');
+    console.error('       → 스크래퍼는 새 탭을 만들지 않고 사용자가 연 탭만 읽습니다');
     console.error('');
     console.error('  방법 B — 본인 Chrome 프로필 디렉터리 재사용 (Chrome 완전 종료 필요):');
     console.error('    $env:CHROME_USER_DATA_DIR="$env:LOCALAPPDATA\\Google\\Chrome\\User Data"');

@@ -73,25 +73,29 @@ git push
 
 #### 방법 A — 사용자가 직접 띄운 Chrome에 attach (권장)
 
-Chrome을 평범하게 본인이 시작하고, 우리 스크립트는 거기에 CDP로 연결만 합니다. 브라우저 자체에는 자동화 흔적이 없으므로 안티봇이 잡을 단서가 없습니다.
+Chrome을 평범하게 본인이 시작하고, **본인이 직접 ticketlink 페이지를 navigate해 둔 상태**에서 우리 스크립트는 그 탭을 그대로 읽기만 합니다. 스크래퍼는 새 탭을 만들거나 navigate를 호출하지 않으므로, 봇 탐지를 트리거하지 않습니다.
 
 ```powershell
 # 1) Chrome을 작업표시줄 우클릭 → "모든 창 닫기"로 완전히 종료
 
-# 2) PowerShell에서 디버깅 포트를 열고 Chrome 실행 (새 프로필 사용)
+# 2) PowerShell #1 에서 디버깅 포트를 열고 Chrome 실행 (새 프로필 사용)
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
   --remote-debugging-port=9222 `
   --user-data-dir="C:\temp\kbo-chrome"
 
-# 3) 열린 Chrome 창에서 https://m.ticketlink.co.kr/sports/137/57 직접 방문
-#    페이지가 정상 로드되는지 눈으로 확인 (필요시 한 번 스크롤)
+# 3) 열린 Chrome 창의 주소창에 직접 입력하여 방문 (필수)
+#    https://m.ticketlink.co.kr/sports/137/57
+#    페이지가 정상 로드되고 경기 목록이 보일 때까지 기다리세요
+#    필요하면 본인이 스크롤해서 더 많은 경기를 펼쳐 두세요
 
-# 4) 다른 PowerShell 창에서:
+# 4) PowerShell #2 (새 창) 에서:
 cd C:\Users\zetz1\Downloads\KBO-fresh
 npm run scrape:attach
 ```
 
-스크래퍼는 새 탭을 열어 작업하고 끝나면 그 탭만 닫습니다. Chrome 창 자체는 그대로 유지됩니다.
+스크래퍼는 **사용자 탭을 절대 닫지 않고**, navigate도 하지 않고, JS 인젝션도 하지 않습니다 — `page.evaluate()`로 DOM만 읽어서 scheduleId/링크를 추출합니다. 사용자가 보던 화면 그대로 유지됩니다.
+
+> attach 모드에서 "ticketlink 탭을 찾지 못했습니다" 오류가 나면 → 3단계에서 사용자가 직접 페이지를 방문하지 않은 상태로 4단계를 실행한 것입니다. 3단계를 먼저 마치세요.
 
 #### 방법 B — 본인 Chrome 프로필 디렉터리 재사용
 
