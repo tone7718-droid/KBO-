@@ -24,6 +24,8 @@ const HEADLESS = process.env.SCRAPER_HEADLESS
 const DEBUG = !!process.env.SCRAPER_DEBUG;
 const NAV_TIMEOUT_MS = Number(process.env.SCRAPER_NAV_TIMEOUT_MS || 60_000);
 const KEEP_ON_FAILURE = !/^(0|false|no|off)$/i.test(process.env.SCRAPER_KEEP_ON_FAILURE || 'true');
+// 사내 MITM 프록시/방화벽이 인증서를 재서명하는 환경에서만 사용. CI에서는 절대 활성화하지 마세요.
+const INSECURE = /^(1|true|yes|on)$/i.test(process.env.SCRAPER_INSECURE || '');
 
 const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
@@ -253,10 +255,12 @@ async function scrape() {
     '--lang=ko-KR,ko',
     '--window-size=1440,900',
   ];
+  if (INSECURE) launchArgs.push('--ignore-certificate-errors');
 
   const browser = await puppeteer.launch({
     headless: HEADLESS ? 'new' : false,
     defaultViewport: null,
+    acceptInsecureCerts: INSECURE,
     args: launchArgs,
   });
 

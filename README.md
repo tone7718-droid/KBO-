@@ -50,6 +50,7 @@ git push
 | `SCRAPER_DEBUG` | `0` | `1`이면 페이지 콘솔/네트워크 실패 로그 출력 |
 | `SCRAPER_NAV_TIMEOUT_MS` | `60000` | 페이지 이동 타임아웃 |
 | `SCRAPER_KEEP_ON_FAILURE` | `true` | 실패해도 기존 `booking-data.json`을 보존 |
+| `SCRAPER_INSECURE` | `0` | 사내 MITM 프록시/방화벽이 TLS를 재서명할 때만 `1`로. CI에서는 절대 켜지 마세요 |
 
 ### 4. 프런트엔드 로컬 미리보기
 
