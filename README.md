@@ -141,7 +141,7 @@ CHROME_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome" npm run s
 
 티켓링크는 scheduleId를 **DOM에 노출하지 않습니다** — React 컴포넌트 props로만 존재합니다. DOM 휴리스틱은 본질적으로 실패합니다.
 
-대신 attach 모드는 사용자가 이미 PerimeterX를 통과한 탭 안에서 schedules API를 직접 호출합니다:
+대신 attach 모드는 **페이지가 자기 라이프사이클에서 어차피 호출하는 API 응답을 CDP Network로 수동 가로채기**합니다. 우리는 트래픽을 일절 만들지 않고 듣기만 하므로 PerimeterX에 잡힐 행위 자체가 없습니다.
 
 ```
 GET https://mapi.ticketlink.co.kr/mapi/sports/schedules
@@ -151,7 +151,13 @@ GET https://mapi.ticketlink.co.kr/mapi/sports/schedules
     &endDate=YYYYMMDD
 ```
 
-쿠키/PerimeterX 챌린지 토큰이 자연스럽게 이어져 봇 차단을 받지 않습니다. 반환된 각 스케줄의 풍부한 필드를 그대로 `booking-data.json`으로 매핑합니다:
+실행 흐름:
+1. `npm run scrape:attach` 실행 → 사용자 Chrome 탭에 CDP Network 모니터링 시작
+2. **사용자가 Chrome 창의 ticketlink 탭에서 F5(또는 Ctrl+R)로 새로고침**
+3. 페이지가 정상적으로 위 API를 호출 → 스크래퍼가 그 응답을 가로채 파싱
+4. `booking-data.json` 작성
+
+반환된 각 스케줄의 풍부한 필드를 그대로 매핑합니다:
 
 | 필드 | 출처 |
 | --- | --- |
