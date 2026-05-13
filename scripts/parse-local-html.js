@@ -144,6 +144,59 @@ async function main() {
 
     console.log(`[parse] cards=${harvest.cards.length} nextData=${harvest.nextData.length}`);
 
+    // 0건일 때 자동 진단: 어떤 카드가 잡혔는지, ID 후보 링크는 어디 있는지
+    if (harvest.cards.length === 0 || harvest.cards.every((c) => !c.scheduleId)) {
+      const diag = await page.evaluate(() => {
+        const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+        const samsungSnippets = [];
+        // "삼성"이 포함된 가장 작은 컨테이너 3개의 outerHTML
+        const all = [...document.querySelectorAll('*')]
+          .filter((el) => /삼성|라이온즈/i.test(el.innerText || '') && el.children.length < 30);
+        const inner = all.filter((el) => !all.some((o) => o !== el && o.contains(el)));
+        for (const el of inner.slice(0, 3)) {
+          samsungSnippets.push({
+            tag: el.tagName.toLowerCase(),
+            class: (el.className && el.className.toString) ? el.className.toString().slice(0, 80) : '',
+            text: clean(el.innerText).slice(0, 200),
+            html: el.outerHTML.slice(0, 2000),
+          });
+        }
+        // 숫자 5자리 이상을 포함한 모든 anchor href
+        const anchorsWithIds = [...document.querySelectorAll('a[href]')]
+          .map((a) => a.getAttribute('href'))
+          .filter((h) => h && /\d{4,}/.test(h))
+          .slice(0, 15);
+        // data-* 속성에 숫자 ID 가진 요소들 샘플
+        const dataIdElems = [];
+        const elemsWithData = [...document.querySelectorAll('[data-schedule-id],[data-scheduleid],[data-game-id],[data-gameid],[data-product-id],[data-productid],[data-match-id],[data-matchid],[data-id],[data-no],[data-key]')];
+        for (const el of elemsWithData.slice(0, 8)) {
+          const attrs = {};
+          for (const a of el.attributes) if (/^data-/.test(a.name)) attrs[a.name] = a.value;
+          dataIdElems.push({ tag: el.tagName.toLowerCase(), attrs, text: clean(el.innerText).slice(0, 80) });
+        }
+        // 페이지 어딘가에 등장하는 5자리 이상 숫자 토큰 샘플 (head/script/meta 제외)
+        const bodyText = document.body?.innerText || '';
+        const digitTokens = [...new Set((bodyText.match(/\d{5,}/g) || []))].slice(0, 15);
+
+        return { samsungSnippets, anchorsWithIds, dataIdElems, digitTokens };
+      });
+
+      console.log('\n=== DIAGNOSTIC (저장된 HTML 안의 단서) ===');
+      console.log(`\n[1] "삼성/라이온즈" 포함 가장 안쪽 컨테이너 ${diag.samsungSnippets.length}개:`);
+      diag.samsungSnippets.forEach((s, i) => {
+        console.log(`\n  [#${i + 1}] <${s.tag} class="${s.class}">`);
+        console.log(`      text: ${s.text}`);
+        console.log(`      html: ${s.html}`);
+      });
+      console.log(`\n[2] href에 4자리 이상 숫자 포함한 anchor (${diag.anchorsWithIds.length}개):`);
+      diag.anchorsWithIds.forEach((h) => console.log(`      ${h}`));
+      console.log(`\n[3] data-*-id 속성 가진 요소 (${diag.dataIdElems.length}개):`);
+      diag.dataIdElems.forEach((e) => console.log(`      <${e.tag}> ${JSON.stringify(e.attrs)} text="${e.text}"`));
+      console.log(`\n[4] body 텍스트에 등장하는 5자리 이상 숫자 토큰: ${diag.digitTokens.join(', ')}`);
+      console.log('\n=== END DIAGNOSTIC ===');
+      console.log('위 출력 전체를 그대로 공유해주시면 정확한 추출 패치를 만듭니다.');
+    }
+
     const today = new Date();
     const buildUrl = (id) => BOOKING_URL_PATTERN.replace('{scheduleId}', encodeURIComponent(id));
 
