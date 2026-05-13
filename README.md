@@ -78,7 +78,8 @@ git push
 | `TICKETLINK_BOOKING_URL_PATTERN` | `https://m.ticketlink.co.kr/sports/137/57/{scheduleId}` | scheduleId 사전 수집 시 URL 조립 패턴. 사이트 구조가 바뀌면 여기만 갱신 |
 | `CHROME_PATH` | (자동 탐지) | 시스템 Chrome 실행 파일 경로. 자동 탐지 실패 시 명시. |
 | `CHROME_USER_DATA_DIR` | (없음) | 본인 Chrome 프로필 디렉터리. 쿠키/이력으로 봇 탐지 우회. 지정 전 Chrome 완전 종료 필요. |
-| `SCRAPER_ATTACH_URL` | (없음) | 사용자가 미리 띄운 Chrome의 CDP 엔드포인트 (예: `http://localhost:9222`). 가장 안전한 봇 우회 방법. |
+| `SCRAPER_ATTACH_URL` | (없음) | 사용자가 미리 띄운 Chrome의 CDP 엔드포인트 (예: `http://localhost:9222`). attach 모드 활성화. |
+| `TICKETLINK_API_DAYS_AHEAD` | `90` | API 조회 기간(일). 오늘부터 N일 뒤까지의 경기 수집. |
 
 ### 봇 탐지(ErrorCode:200) 대응
 
@@ -136,16 +137,32 @@ CHROME_USER_DATA_DIR="$HOME/Library/Application Support/Google/Chrome" npm run s
 
 연속 시도로 IP 평판이 하락한 경우. 그 동안 차단 페이지가 떠도 `booking-data.json`은 이전 정상 데이터로 보존됩니다 (`SCRAPER_KEEP_ON_FAILURE`).
 
-### scheduleId 사전 수집
+### scheduleId 수집 — API 직접 호출 (attach 모드)
 
-`booking-data.json`의 각 항목은 `scheduleId` 와 `scheduleSource` 를 함께 가집니다. 스크래퍼는 **예매 버튼이 disabled 상태여도** 다음 4계층을 순회하며 ID를 수확합니다:
+티켓링크는 scheduleId를 **DOM에 노출하지 않습니다** — React 컴포넌트 props로만 존재합니다. DOM 휴리스틱은 본질적으로 실패합니다.
 
-1. `<script id="__NEXT_DATA__">` 인라인 JSON (가장 권위적, raw 객체로 팀/날짜까지 추출)
-2. `data-schedule-id` / `data-game-id` / `data-product-id` 등 `data-*` 속성
-3. anchor `href` 꼬리 숫자 (`/sports/137/57/12345`)
-4. `onclick` / 인라인 핸들러 안의 정규식 (`productId: 12345`)
+대신 attach 모드는 사용자가 이미 PerimeterX를 통과한 탭 안에서 schedules API를 직접 호출합니다:
 
-수집된 ID는 `TICKETLINK_BOOKING_URL_PATTERN`에 따라 사전 URL로 조립되며, `preOpen: true` 와 `bookingOpen: false` 로 표시됩니다. 프런트엔드는 이런 항목에 `PRE-OPEN` 뱃지를 표시합니다.
+```
+GET https://mapi.ticketlink.co.kr/mapi/sports/schedules
+    ?categoryId=137 (KBO)
+    &teamId=57 (삼성)
+    &startDate=YYYYMMDD
+    &endDate=YYYYMMDD
+```
+
+쿠키/PerimeterX 챌린지 토큰이 자연스럽게 이어져 봇 차단을 받지 않습니다. 반환된 각 스케줄의 풍부한 필드를 그대로 `booking-data.json`으로 매핑합니다:
+
+| 필드 | 출처 |
+| --- | --- |
+| `scheduleId` / `productId` | API |
+| `date` / `time` | `scheduleDate` 파싱 |
+| `targetTime` | `reserveOpenDate` 파싱 (예매 오픈 시각 자동 적용) |
+| `bookingOpen` / `reserveButtonStatus` | API `reserveButtonStatus` |
+| `bookingUrl` | `/reserve/product/{productId}?scheduleId={scheduleId}` |
+| `venueName`, `captchaUse`, `authReinforceYn`, `waitingAvailable` | API |
+
+`preOpen: true` 인 미래 경기도 API 응답에 그대로 포함됩니다. 프런트엔드는 이런 항목에 `PRE-OPEN` 뱃지를 표시합니다.
 
 ### 4. 프런트엔드 로컬 미리보기
 

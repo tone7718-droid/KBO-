@@ -31,10 +31,19 @@ const INSECURE = /^(1|true|yes|on)$/i.test(process.env.SCRAPER_INSECURE || '');
 const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-// 예매 오픈 전 disabled 상태에서도 scheduleId가 노출되면 이 패턴으로 URL을 미리 조립합니다.
-// 환경변수로 오버라이드 가능: TICKETLINK_BOOKING_URL_PATTERN="https://m.ticketlink.co.kr/sports/137/57/{scheduleId}"
+// 예매 URL 패턴. 티켓링크는 productId(경로) + scheduleId(쿼리) 둘 다 필요합니다.
+// 환경변수로 오버라이드 가능. 두 자리표시자 모두 치환됨.
 const BOOKING_URL_PATTERN = process.env.TICKETLINK_BOOKING_URL_PATTERN
-  || 'https://m.ticketlink.co.kr/sports/137/57/{scheduleId}';
+  || 'https://m.ticketlink.co.kr/reserve/product/{productId}?scheduleId={scheduleId}';
+
+// API 조회 기간 (YYYYMMDD). 오늘부터 N일 후까지.
+const API_DAYS_AHEAD = Number(process.env.TICKETLINK_API_DAYS_AHEAD || 90);
+
+function buildBookingUrl(productId, scheduleId) {
+  return BOOKING_URL_PATTERN
+    .replace('{productId}', encodeURIComponent(String(productId)))
+    .replace('{scheduleId}', encodeURIComponent(String(scheduleId)));
+}
 
 // 시스템에 설치된 실제 Chrome 경로를 자동 탐지. Puppeteer 번들 Chromium보다 식별이 어렵습니다.
 // 명시적 오버라이드: CHROME_PATH 환경변수 또는 PUPPETEER_EXECUTABLE_PATH
@@ -613,6 +622,111 @@ async function waitForBookingContent(page, { totalMs = 20_000, intervalMs = 500 
   return null;
 }
 
+/**
+ * 사용자가 PerimeterX를 통과해 둔 탭 안에서 직접 fetch.
+ * 쿠키/세션 토큰이 자연스럽게 따라가 봇 차단을 받지 않습니다.
+ *
+ * API 응답 구조 (정찰로 확인):
+ *   { data: { schedules: [ { scheduleId, productId, scheduleDate, reserveOpenDate,
+ *                            reserveCloseDate, reserveButtonStatus,
+ *                            homeTeam: {teamId, teamName, logoImagePath}, awayTeam: {...},
+ *                            venueName, captchaUse, authReinforceYn,
+ *                            waitingReservation: { waitingReservationUse }, ... } ] },
+ *     success: true }
+ */
+async function fetchSchedulesFromApi(page) {
+  const today = new Date();
+  const kstNow = new Date(today.toLocaleString('en-US', { timeZone: KST_TIME_ZONE }));
+  const yyyymmdd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const startDate = yyyymmdd(kstNow);
+  const endDate = yyyymmdd(new Date(kstNow.getTime() + API_DAYS_AHEAD * 86400_000));
+
+  const params = { categoryId: '137', teamId: '57', startDate, endDate };
+  log(`calling schedules API from inside user tab — startDate=${startDate} endDate=${endDate}`);
+
+  const apiResp = await page.evaluate(async (p) => {
+    const url = `https://mapi.ticketlink.co.kr/mapi/sports/schedules?${new URLSearchParams(p).toString()}`;
+    try {
+      const r = await fetch(url, {
+        credentials: 'include',
+        headers: { Accept: 'application/json, text/plain, */*' },
+      });
+      const text = await r.text();
+      return { ok: true, status: r.status, body: text };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message) };
+    }
+  }, params);
+
+  if (!apiResp.ok) throw new Error(`API fetch failed: ${apiResp.error}`);
+  if (apiResp.status !== 200) throw new Error(`API HTTP ${apiResp.status}: ${apiResp.body.slice(0, 200)}`);
+
+  let data;
+  try { data = JSON.parse(apiResp.body); } catch (e) {
+    throw new Error(`API returned non-JSON: ${apiResp.body.slice(0, 200)}`);
+  }
+
+  if (!data.success || data.result?.code !== 0) {
+    throw new Error(`API error: ${data.result?.message || data.result?.errorMessage || apiResp.body.slice(0, 200)}`);
+  }
+
+  const schedules = data.data?.schedules || [];
+  log(`API returned ${schedules.length} schedule(s)`);
+  return schedules.map((s) => mapApiSchedule(s));
+}
+
+function parseDateTime(str) {
+  if (!str) return { date: null, time: null };
+  const s = String(str);
+  // ISO with T or space: 2026-05-13T18:30:00 / 2026-05-13 18:30:00
+  let m = s.match(/(\d{4})-?(\d{2})-?(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}:${m[6] || '00'}` };
+  // Fully packed: 20260513183000
+  m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?$/);
+  if (m) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}:${m[6] || '00'}` };
+  // Date only: 2026-05-13 or 20260513
+  m = s.match(/^(\d{4})-?(\d{2})-?(\d{2})$/);
+  if (m) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: null };
+  return { date: null, time: null };
+}
+
+function mapApiSchedule(s) {
+  const home = s.homeTeam?.teamName || '';
+  const away = s.awayTeam?.teamName || '';
+  const opponent = /삼성|라이온즈/.test(home) ? away : home;
+
+  const { date, time } = parseDateTime(s.scheduleDate);
+  const reserve = parseDateTime(s.reserveOpenDate);
+  const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
+
+  const isOpen = String(s.reserveButtonStatus || '').toUpperCase().includes('OPEN')
+    && !String(s.reserveButtonStatus || '').toUpperCase().includes('NOT');
+
+  return {
+    id: String(s.scheduleId),
+    team: '삼성 라이온즈',
+    opponent,
+    title: [date, time?.slice(0, 5), away && home ? `${away} vs ${home}` : '', s.venueName].filter(Boolean).join(' '),
+    date,
+    time,
+    targetTime,
+    scheduleId: String(s.scheduleId),
+    productId: s.productId != null ? String(s.productId) : null,
+    scheduleSource: 'api',
+    bookingOpen: isOpen,
+    reserveButtonStatus: s.reserveButtonStatus || null,
+    reserveOpenDate: s.reserveOpenDate || null,
+    reserveCloseDate: s.reserveCloseDate || null,
+    venueName: s.venueName || null,
+    captchaUse: !!s.captchaUse,                          // 클린예매(CAPTCHA)
+    authReinforceYn: s.authReinforceYn === 'Y',           // 기기 인증 필요
+    waitingAvailable: !!s.waitingReservation?.waitingReservationUse,
+    bookingUrl: s.productId ? buildBookingUrl(s.productId, s.scheduleId) : null,
+    sourceUrl: SOURCE_URL,
+    preOpen: !isOpen,
+  };
+}
+
 async function autoScroll(page, { steps = 6, delayMs = 700 } = {}) {
   for (let i = 0; i < steps; i += 1) {
     await page.evaluate(() => window.scrollBy(0, Math.floor(window.innerHeight * 0.85)));
@@ -670,9 +784,12 @@ async function scrape() {
   let page;
   let userOwnedPage = false; // true이면 사용자 탭이므로 절대 닫지 말 것
   try {
+    let games;
+    let scrapeMeta = {};
+
     if (attached) {
-      // 사용자가 직접 navigate해서 봇 탐지를 이미 통과한 탭을 찾아 재사용합니다.
-      // 새 탭을 만들면 evaluateOnNewDocument + goto() 흔적이 다시 남으므로 절대 새 탭 X.
+      // attach 모드: 사용자가 이미 PerimeterX를 통과한 탭에서 schedules API를 직접 호출.
+      // scheduleId는 DOM에 없고 React props로만 존재하므로 API가 유일한 정확한 출처.
       const pages = await browser.pages();
       const ticketlinkTab = pages.find((p) => /ticketlink\.co\.kr/.test(p.url()));
       if (!ticketlinkTab) {
@@ -684,9 +801,11 @@ async function scrape() {
       page = ticketlinkTab;
       userOwnedPage = true;
       log(`reusing user tab: ${page.url()}`);
-      // configurePage(...) 호출 안 함 — 사용자가 평범하게 연 탭의 상태를 보존
-      // page.goto(...) 호출 안 함 — 이미 사용자가 navigate해 둠
+
+      games = await fetchSchedulesFromApi(page);
+      scrapeMeta = { strategy: 'api-via-user-tab', endpoint: 'mapi.ticketlink.co.kr/mapi/sports/schedules' };
     } else {
+      // launch 모드: DOM 휴리스틱 fallback. 봇 차단이 심해 거의 동작 안 함.
       page = await browser.newPage();
       await configurePage(page);
       page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
@@ -699,39 +818,21 @@ async function scrape() {
       const response = await page.goto(SOURCE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
       const status = response?.status() ?? 0;
       log(`initial response status=${status}`);
+      if (status >= 400) throw new Error(`HTTP ${status} from ${SOURCE_URL}`);
 
-      if (status >= 400) {
-        throw new Error(`HTTP ${status} from ${SOURCE_URL}`);
-      }
-    }
-
-    await waitForBookingContent(page, { totalMs: 18_000 });
-    if (!attached) {
-      // 사용자 탭은 임의로 스크롤하지 않습니다 (사용자가 보던 위치 보존)
+      await waitForBookingContent(page, { totalMs: 18_000 });
       await autoScroll(page, { steps: 6 });
       await waitForBookingContent(page, { totalMs: 6_000 });
+
+      const rawGames = await extractGames(page);
+      const harvest = await harvestScheduleIds(page);
+      log(`launch-mode harvest: anchors=${rawGames.length} cards=${harvest.cards.length} nextData=${harvest.nextData.length}`);
+      const merged = mergeSchedules(rawGames, harvest, BOOKING_URL_PATTERN);
+      games = dedupeGames(merged.games);
+      scrapeMeta = { strategy: 'dom-fallback' };
     }
 
-    const rawGames = await extractGames(page);
-    log(`extracted ${rawGames.length} game(s) from anchors`);
-
-    const harvest = await harvestScheduleIds(page);
-    log(`harvested scheduleId — cards=${harvest.cards.length} nextData=${harvest.nextData.length}`);
-    if (DEBUG) {
-      const sample = [...harvest.cards.slice(0, 3), ...harvest.nextData.slice(0, 3)];
-      log('harvest sample:', JSON.stringify(sample, null, 2).slice(0, 1200));
-    }
-
-    const merged = mergeSchedules(rawGames, harvest, BOOKING_URL_PATTERN);
-    const games = dedupeGames(merged.games);
     log(`final games=${games.length} (pre-open=${games.filter((g) => g.preOpen).length}, with scheduleId=${games.filter((g) => g.scheduleId).length})`);
-
-    // scheduleId 수확이 0이면 자동으로 진단 정보 노출 — 다음 정규식 패치에 단서가 됩니다.
-    if (games.length > 0 && games.filter((g) => g.scheduleId).length === 0) {
-      log('--- DIAGNOSTIC (scheduleId=0): first 5 bookingUrls ---');
-      for (const g of games.slice(0, 5)) log(`  url: ${g.bookingUrl} | title: ${(g.title || '').slice(0, 80)}`);
-      log('--- END DIAGNOSTIC ---');
-    }
 
     const payload = {
       team: 'Samsung Lions',
@@ -741,11 +842,8 @@ async function scrape() {
       updatedAt: new Date().toISOString(),
       timeZone: KST_TIME_ZONE,
       mode: MODE,
+      ...scrapeMeta,
       count: games.length,
-      scheduleIdHarvest: {
-        fromCards: harvest.cards.length,
-        fromNextData: harvest.nextData.length,
-      },
       games,
     };
 
