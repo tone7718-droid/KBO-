@@ -623,64 +623,81 @@ async function waitForBookingContent(page, { totalMs = 20_000, intervalMs = 500 
 }
 
 /**
- * 사용자 탭이 자기 라이프사이클에서 호출하는 schedules API 응답을 CDP Network로 수동 가로채기.
+ * 사용자 탭이 자기 라이프사이클에서 호출하는 schedules API 응답을 수동 가로채기.
  * 우리가 직접 fetch를 걸면 PerimeterX가 탭을 강제 navigate시켜 차단합니다.
  * 우리는 트래픽을 만들지 않고 듣기만 합니다.
+ *
+ * PerimeterX 챌린지 동안 여러 번의 short response(short body가 곧 폐기됨)가 발생하므로
+ * Puppeteer의 page.on('response') 핸들러를 쓰고 200 + JSON 응답만 채택합니다.
  */
 async function captureSchedulesViaCdp(page) {
-  const TIMEOUT_MS = Number(process.env.TICKETLINK_API_TIMEOUT_MS || 60_000);
-
-  const cdp = await page.target().createCDPSession();
-  await cdp.send('Network.enable');
+  const TIMEOUT_MS = Number(process.env.TICKETLINK_API_TIMEOUT_MS || 90_000);
 
   return new Promise((resolve, reject) => {
-    const pending = new Map(); // requestId -> response metadata
     let resolved = false;
+    let seen = 0;
+    let lastNon200 = null;
 
     const timer = setTimeout(() => {
       if (resolved) return;
       resolved = true;
-      cdp.detach().catch(() => {});
+      page.off('response', handler);
       reject(new Error(
-        `${TIMEOUT_MS / 1000}초 안에 schedules API 응답을 받지 못했습니다.\n` +
-        'Chrome 창의 ticketlink 탭에서 페이지를 새로고침(F5 또는 Ctrl+R)하세요. ' +
-        '명령어가 실행 중인 상태에서 새로고침해야 응답을 가로챌 수 있습니다.'
+        `${TIMEOUT_MS / 1000}초 안에 schedules API의 200 응답을 받지 못했습니다.\n` +
+        `(이 시간 안에 ${seen}개의 schedules 요청을 보았지만 200 JSON은 없었습니다. 마지막 비-200 응답: ${lastNon200 || 'n/a'})\n` +
+        '가능한 원인:\n' +
+        '  - 새로고침을 안 했거나 너무 일찍 함\n' +
+        '  - PerimeterX 챌린지가 통과되지 않아 페이지가 데이터를 못 받음 (탭에서 정상 페이지가 떴는지 확인)\n' +
+        '  - TICKETLINK_API_TIMEOUT_MS 환경변수로 타임아웃을 늘려 재시도 가능'
       ));
     }, TIMEOUT_MS);
 
-    cdp.on('Network.responseReceived', (event) => {
-      const url = event?.response?.url || '';
-      if (url.includes('/mapi/sports/schedules') && !url.includes('/sports/schedule?')) {
-        pending.set(event.requestId, { url, status: event.response.status });
+    const handler = async (response) => {
+      const url = response.url();
+      if (!url.includes('/mapi/sports/schedules')) return;
+      const status = response.status();
+      seen += 1;
+      if (status !== 200) {
+        lastNon200 = `HTTP ${status}`;
+        log(`schedules response: status=${status} (challenge in progress, ignoring)`);
+        return;
       }
-    });
-
-    cdp.on('Network.loadingFinished', async (event) => {
-      const meta = pending.get(event.requestId);
-      if (!meta || resolved) return;
+      // 200이면 본문 시도
+      let text;
       try {
-        const result = await cdp.send('Network.getResponseBody', { requestId: event.requestId });
-        const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
-        log(`captured schedules response: status=${meta.status} length=${body.length}`);
-        const data = JSON.parse(body);
-        if (!data.success) {
-          log(`API responded with success=false: ${body.slice(0, 200)}`);
-          return; // keep listening — maybe a later valid response
-        }
-        const schedules = data.data?.schedules || [];
-        resolved = true;
-        clearTimeout(timer);
-        await cdp.detach().catch(() => {});
-        resolve(schedules);
+        text = await response.text();
       } catch (e) {
-        log(`failed to parse response for ${meta.url}: ${e.message}`);
-        // keep listening
+        log(`200 response body unavailable: ${e.message}`);
+        return;
       }
-    });
+      let data;
+      try { data = JSON.parse(text); } catch {
+        log(`200 response not JSON (length=${text.length}): ${text.slice(0, 120)}`);
+        return;
+      }
+      if (!data.success) {
+        const code = data.result?.code;
+        log(`200 JSON but success=false (code=${code}): ${(data.result?.message || '').slice(0, 100)}`);
+        if (code === 7200) lastNon200 = 'PerimeterX challenge (code 7200)';
+        return;
+      }
+      const schedules = data.data?.schedules;
+      if (!Array.isArray(schedules)) {
+        log(`200 JSON but no schedules array. Top-level keys: ${Object.keys(data.data || {}).join(', ')}`);
+        return;
+      }
+      resolved = true;
+      clearTimeout(timer);
+      page.off('response', handler);
+      log(`captured ${schedules.length} schedules from API response (length=${text.length})`);
+      resolve(schedules);
+    };
+
+    page.on('response', handler);
 
     log('---');
-    log('네트워크 모니터링 시작 — 다음 60초 안에 Chrome 창의 ticketlink 탭에서 F5(또는 Ctrl+R)로 새로고침하세요.');
-    log('새로고침이 일어나면 페이지가 자기 자신을 위해 schedules API를 호출하고, 우리는 그 응답을 받아 적습니다.');
+    log(`네트워크 모니터링 시작 (최대 ${TIMEOUT_MS / 1000}초) — Chrome 창의 ticketlink 탭에서 F5로 새로고침하세요.`);
+    log('PerimeterX 챌린지 동안 여러 응답이 무시될 수 있습니다. 마지막에 status=200이 들어오면 성공.');
     log('---');
   });
 }
