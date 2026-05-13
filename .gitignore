@@ -5,3 +5,7 @@ npm-debug.log*
 .DS_Store
 .vercel/
 discover/
+# chrome://net-export 덤프는 쿠키/세션 포함 — 절대 커밋 금지
+*.netlog.json
+netlog.json
+ticketlink-netlog*.json

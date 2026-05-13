@@ -12,6 +12,7 @@
     "scrape:attach": "cross-env SCRAPER_MODE=local SCRAPER_ATTACH_URL=http://localhost:9222 node scripts/scraper.js",
     "discover": "cross-env SCRAPER_ATTACH_URL=http://localhost:9222 node scripts/discover.js",
     "parse:html": "node scripts/parse-local-html.js",
+    "parse:netlog": "node scripts/parse-netlog.js",
     "serve": "npx --yes serve@latest -l 5173 ."
   },
   "dependencies": {
