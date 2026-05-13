@@ -644,30 +644,64 @@ async function fetchSchedulesFromApi(page) {
   const params = { categoryId: '137', teamId: '57', startDate, endDate };
   log(`calling schedules API from inside user tab — startDate=${startDate} endDate=${endDate}`);
 
-  const apiResp = await page.evaluate(async (p) => {
+  const FETCH_TIMEOUT_MS = Number(process.env.TICKETLINK_API_TIMEOUT_MS || 20_000);
+
+  const apiResp = await page.evaluate(async (p, timeoutMs) => {
     const url = `https://mapi.ticketlink.co.kr/mapi/sports/schedules?${new URLSearchParams(p).toString()}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const startedAt = Date.now();
     try {
       const r = await fetch(url, {
         credentials: 'include',
         headers: { Accept: 'application/json, text/plain, */*' },
+        signal: ctrl.signal,
       });
+      const elapsed = Date.now() - startedAt;
       const text = await r.text();
-      return { ok: true, status: r.status, body: text };
+      // 응답 헤더 일부 노출 — PerimeterX 챌린지/리다이렉트 흔적 식별용
+      const headers = {};
+      for (const k of ['content-type', 'x-px-block', 'x-px-action', 'set-cookie', 'location', 'cf-ray']) {
+        const v = r.headers.get(k);
+        if (v) headers[k] = v.slice(0, 200);
+      }
+      return { ok: true, status: r.status, elapsed, url: r.url, body: text, headers };
     } catch (e) {
-      return { ok: false, error: String(e && e.message) };
+      return { ok: false, error: String(e && e.message), aborted: e?.name === 'AbortError', elapsed: Date.now() - startedAt };
+    } finally {
+      clearTimeout(timer);
     }
-  }, params);
+  }, params, FETCH_TIMEOUT_MS);
 
-  if (!apiResp.ok) throw new Error(`API fetch failed: ${apiResp.error}`);
-  if (apiResp.status !== 200) throw new Error(`API HTTP ${apiResp.status}: ${apiResp.body.slice(0, 200)}`);
+  if (!apiResp.ok) {
+    if (apiResp.aborted) {
+      throw new Error(`API fetch timed out after ${FETCH_TIMEOUT_MS}ms. PerimeterX 챌린지에 걸렸을 가능성이 큽니다. Chrome 탭에서 페이지를 새로고침해 정상 로드 확인 후 재시도하세요.`);
+    }
+    throw new Error(`API fetch failed (${apiResp.elapsed}ms): ${apiResp.error}`);
+  }
+
+  log(`API responded in ${apiResp.elapsed}ms — status=${apiResp.status} content-type=${apiResp.headers['content-type'] || 'unknown'}`);
+  if (apiResp.url !== `https://mapi.ticketlink.co.kr/mapi/sports/schedules?${new URLSearchParams(params).toString()}`) {
+    log(`(redirected to ${apiResp.url})`);
+  }
+  if (apiResp.headers['x-px-block'] || apiResp.headers['x-px-action']) {
+    log(`PerimeterX header detected: ${JSON.stringify(apiResp.headers)}`);
+  }
+
+  if (apiResp.status !== 200) throw new Error(`API HTTP ${apiResp.status}: ${apiResp.body.slice(0, 300)}`);
 
   let data;
   try { data = JSON.parse(apiResp.body); } catch (e) {
-    throw new Error(`API returned non-JSON: ${apiResp.body.slice(0, 200)}`);
+    throw new Error(`API returned non-JSON (likely PerimeterX challenge page): ${apiResp.body.slice(0, 300)}`);
   }
 
   if (!data.success || data.result?.code !== 0) {
-    throw new Error(`API error: ${data.result?.message || data.result?.errorMessage || apiResp.body.slice(0, 200)}`);
+    const code = data.result?.code;
+    const msg = data.result?.message || data.result?.errorMessage || apiResp.body.slice(0, 200);
+    if (code === 7200) {
+      throw new Error(`PerimeterX bot detection (code 7200). Chrome 탭에서 페이지를 새로고침해 챌린지를 통과한 후 재시도하세요.`);
+    }
+    throw new Error(`API error code=${code}: ${msg}`);
   }
 
   const schedules = data.data?.schedules || [];
