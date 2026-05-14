@@ -41,8 +41,8 @@ const API_DAYS_AHEAD = Number(process.env.TICKETLINK_API_DAYS_AHEAD || 90);
 
 function buildBookingUrl(productId, scheduleId) {
   return BOOKING_URL_PATTERN
-    .replace('{productId}', encodeURIComponent(String(productId)))
-    .replace('{scheduleId}', encodeURIComponent(String(scheduleId)));
+    .replace(/\{productId\}/g, encodeURIComponent(String(productId)))
+    .replace(/\{scheduleId\}/g, encodeURIComponent(String(scheduleId)));
 }
 
 // 시스템에 설치된 실제 Chrome 경로를 자동 탐지. Puppeteer 번들 Chromium보다 식별이 어렵습니다.
@@ -732,8 +732,9 @@ function mapApiSchedule(s) {
   const reserve = parseDateTime(s.reserveOpenDate);
   const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
 
-  const isOpen = String(s.reserveButtonStatus || '').toUpperCase().includes('OPEN')
-    && !String(s.reserveButtonStatus || '').toUpperCase().includes('NOT');
+  // RESERVE_OPEN / OPENED 는 진짜 오픈, NOT_OPEN / BEFORE_OPEN / OPEN_BEFORE 는 오픈 전.
+  const reserveStatus = String(s.reserveButtonStatus || '').toUpperCase();
+  const isOpen = reserveStatus.includes('OPEN') && !reserveStatus.includes('NOT') && !reserveStatus.includes('BEFORE');
 
   return {
     id: String(s.scheduleId),

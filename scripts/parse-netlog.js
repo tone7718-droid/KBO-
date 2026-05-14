@@ -54,8 +54,8 @@ function log(...args) {
 
 function buildBookingUrl(productId, scheduleId) {
   return BOOKING_URL_PATTERN
-    .replace('{productId}', encodeURIComponent(String(productId)))
-    .replace('{scheduleId}', encodeURIComponent(String(scheduleId)));
+    .replace(/\{productId\}/g, encodeURIComponent(String(productId)))
+    .replace(/\{scheduleId\}/g, encodeURIComponent(String(scheduleId)));
 }
 
 function parseDateTime(str) {
@@ -77,8 +77,9 @@ function mapApiSchedule(s) {
   const { date, time } = parseDateTime(s.scheduleDate);
   const reserve = parseDateTime(s.reserveOpenDate);
   const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
-  const isOpen = String(s.reserveButtonStatus || '').toUpperCase().includes('OPEN')
-    && !String(s.reserveButtonStatus || '').toUpperCase().includes('NOT');
+  // RESERVE_OPEN / OPENED 는 진짜 오픈, NOT_OPEN / BEFORE_OPEN / OPEN_BEFORE 는 오픈 전.
+  const status = String(s.reserveButtonStatus || '').toUpperCase();
+  const isOpen = status.includes('OPEN') && !status.includes('NOT') && !status.includes('BEFORE');
   return {
     id: String(s.scheduleId),
     team: '삼성 라이온즈',
@@ -124,20 +125,14 @@ function parseNetLog(json) {
   const eventTypes = constants.logEventTypes || {};
   const sourceTypes = constants.logSourceType || {};
 
-  // 이름 ↔ 숫자 양방향 맵
+  // 숫자 → 이름 매핑 (이벤트 type/source.type 숫자를 사람이 읽는 이름으로 변환)
   const typeNameOf = {};
   for (const [name, num] of Object.entries(eventTypes)) typeNameOf[num] = name;
-  const sourceNameOf = {};
-  for (const [name, num] of Object.entries(sourceTypes)) sourceNameOf[num] = name;
 
-  const URL_REQUEST = Object.entries(sourceTypes).find(([k]) => k === 'URL_REQUEST')?.[1];
-
-  // 관심 이벤트 타입 숫자
-  const startJob = eventTypes.URL_REQUEST_START_JOB ?? eventTypes.URL_REQUEST_START;
-  const respHeaders1 = eventTypes.HTTP_TRANSACTION_READ_RESPONSE_HEADERS;
-  const respHeaders2 = eventTypes.URL_REQUEST_FAKE_RESPONSE_HEADERS_CREATED;
-  const bytesFiltered = eventTypes.URL_REQUEST_JOB_FILTERED_BYTES_READ;
-  const bytesRaw = eventTypes.URL_REQUEST_JOB_BYTES_READ;
+  const URL_REQUEST = sourceTypes.URL_REQUEST;
+  if (URL_REQUEST == null && DEBUG) {
+    log('warning: sourceTypes.URL_REQUEST 가 없어 source type 필터링을 건너뜁니다.');
+  }
 
   // URL_REQUEST source.id 별로 묶음
   const requests = new Map(); // id -> { url, method, status, headers, filteredBody[], rawBody[] }
@@ -151,7 +146,12 @@ function parseNetLog(json) {
     return r;
   }
 
-  const events = json.events || [];
+  const events = Array.isArray(json.events) ? json.events : null;
+  if (!events) {
+    console.error('NetLog 에 events 배열이 없습니다. 잘못된 파일이거나 캡처가 시작되기 전에 저장되었습니다.');
+    console.error('chrome://net-export 에서 "Start Logging" 을 누른 뒤 ticketlink 페이지를 방문하고 다시 "Stop Logging" 하세요.');
+    process.exit(4);
+  }
   log(`event count: ${events.length}`);
 
   for (const ev of events) {
@@ -168,10 +168,11 @@ function parseNetLog(json) {
       const headers = ev.params?.headers;
       if (Array.isArray(headers) && headers.length) {
         r.headers = headers;
-        // 첫 줄은 보통 "HTTP/1.1 200 OK"
-        const statusLine = headers[0];
-        const m = /^HTTP\/[\d.]+\s+(\d{3})/.exec(statusLine || '');
-        if (m) r.status = Number(m[1]);
+        r.status = extractStatusCode(headers);
+      }
+      // HTTP/2 트랜잭션은 별도 params.response_code 를 노출하기도 함
+      if (r.status == null && Number.isFinite(ev.params?.response_code)) {
+        r.status = Number(ev.params.response_code);
       }
     } else if (typeName === 'URL_REQUEST_JOB_FILTERED_BYTES_READ') {
       if (ev.params?.bytes) r.filtered.push(ev.params.bytes);
@@ -181,6 +182,18 @@ function parseNetLog(json) {
   }
 
   return [...requests.values()];
+}
+
+function extractStatusCode(headers) {
+  // 1) HTTP/1.1 정규화: 첫 줄이 "HTTP/1.1 200 OK"
+  const m = /^HTTP\/[\d.]+\s+(\d{3})/.exec(String(headers[0] || ''));
+  if (m) return Number(m[1]);
+  // 2) HTTP/2 의사 헤더 ":status: 200" 또는 ":status 200" 형태 (Chrome 버전에 따라 다름)
+  for (const h of headers) {
+    const mm = /^:status[:\s]+(\d{3})/i.exec(String(h || ''));
+    if (mm) return Number(mm[1]);
+  }
+  return null;
 }
 
 function decodeBytesChunks(chunks) {
@@ -211,21 +224,33 @@ function tryDecompress(buf, headers) {
   return buf;
 }
 
-function bodyToString(req) {
-  // 1) filtered bytes (압축 해제 + 디코딩이 끝난 상태)
+function bodyCandidates(req) {
+  // 두 후보를 모두 시도할 수 있도록 배열로 반환. filtered 우선.
+  const out = [];
   if (req.filtered.length) {
     const buf = decodeBytesChunks(req.filtered);
-    if (buf && buf.length) return buf.toString('utf8');
+    if (buf && buf.length) out.push({ source: 'filtered', text: buf.toString('utf8') });
   }
-  // 2) raw bytes (압축 상태일 가능성) — Content-Encoding 헤더 기반 복구
   if (req.raw.length) {
     const buf = decodeBytesChunks(req.raw);
     if (buf && buf.length) {
       const decoded = tryDecompress(buf, req.headers);
-      return decoded.toString('utf8');
+      out.push({ source: 'raw', text: decoded.toString('utf8') });
     }
   }
-  return '';
+  return out;
+}
+
+function tryParseJsonBody(req) {
+  for (const cand of bodyCandidates(req)) {
+    try {
+      const data = JSON.parse(cand.text);
+      return { data, text: cand.text, source: cand.source };
+    } catch (e) {
+      if (DEBUG) log(`req ${req.id} body[${cand.source}] JSON parse failed (length=${cand.text.length}): ${e.message}`);
+    }
+  }
+  return null;
 }
 
 async function main() {
@@ -283,39 +308,67 @@ async function main() {
     process.exit(2);
   }
 
-  // 200 + JSON + success:true 인 응답만 채택
+  // 200 + JSON + success:true 인 응답만 채택. 실패 사례는 진단용으로 모두 수집.
   let schedules = null;
   let pickedReq = null;
-  let pickedRaw = null;
+  const failures = []; // { req, reason, hint }
+  let sawPxChallenge = false;
   for (const req of apiRequests) {
-    const text = bodyToString(req);
-    if (!text) {
-      if (DEBUG) log(`req ${req.id}: status=${req.status} url=${req.url} (body empty in netlog — "Include raw bytes" 옵션 미체크?)`);
+    if (req.status != null && req.status !== 200) {
+      failures.push({ req, reason: `HTTP ${req.status}`, hint: 'PerimeterX 챌린지/차단 가능성' });
+      if (DEBUG) log(`req ${req.id}: status=${req.status} skipped`);
       continue;
     }
-    let data;
-    try { data = JSON.parse(text); } catch {
-      if (DEBUG) log(`req ${req.id}: status=${req.status} body not JSON (length=${text.length}): ${text.slice(0, 120)}`);
+    const parsed = tryParseJsonBody(req);
+    if (!parsed) {
+      const hasBody = req.filtered.length || req.raw.length;
+      failures.push({
+        req,
+        reason: hasBody ? '본문이 JSON으로 파싱되지 않음' : '응답 본문이 NetLog에 없음',
+        hint: hasBody ? '응답이 HTML 차단 페이지일 수 있음' : '"Include raw bytes" 옵션 미체크?'
+      });
       continue;
     }
+    const { data } = parsed;
     if (!data.success) {
-      if (DEBUG) log(`req ${req.id}: status=${req.status} success=false (code=${data.result?.code}) ${data.result?.message || ''}`);
+      const code = data.result?.code;
+      const message = data.result?.message || '';
+      if (code === 7200) sawPxChallenge = true;
+      failures.push({ req, reason: `success=false code=${code}`, hint: message.slice(0, 80) });
+      if (DEBUG) log(`req ${req.id}: success=false code=${code} ${message}`);
       continue;
     }
     const arr = data.data?.schedules;
-    if (!Array.isArray(arr)) continue;
+    if (!Array.isArray(arr)) {
+      failures.push({ req, reason: 'schedules 배열 없음', hint: `top keys: ${Object.keys(data.data || {}).join(', ')}` });
+      continue;
+    }
     if (!schedules || arr.length > schedules.length) {
       schedules = arr;
       pickedReq = req;
-      pickedRaw = data;
     }
   }
 
   if (!schedules) {
     console.error('');
-    console.error('schedules API 응답을 찾았으나 본문이 비어있거나 success:false 입니다.');
-    console.error('가장 흔한 원인: chrome://net-export 에서 "Include raw bytes" 옵션을 체크하지 않음.');
-    console.error('해당 옵션을 체크한 뒤 다시 캡처하세요.');
+    console.error('schedules API 응답을 찾았으나 사용 가능한 200/success 응답이 없습니다.');
+    console.error(`확인한 응답: ${apiRequests.length}건`);
+    for (const f of failures.slice(0, 10)) {
+      console.error(`  - status=${f.req.status ?? '?'}  ${f.reason}${f.hint ? `  (${f.hint})` : ''}`);
+    }
+    console.error('');
+    if (sawPxChallenge) {
+      console.error('진단: PerimeterX 챌린지(code 7200)가 응답에 포함되어 있습니다.');
+      console.error('  → 캡처 중에 ticketlink 페이지가 정상적으로 로드되었는지 확인하세요.');
+      console.error('  → 페이지에 경기 카드가 보이는 상태에서 캡처를 다시 하세요.');
+    } else if (failures.every((f) => f.reason === '응답 본문이 NetLog에 없음')) {
+      console.error('진단: 응답 본문이 NetLog 에 하나도 없습니다.');
+      console.error('  → chrome://net-export 의 "Include raw bytes" 옵션이 꺼져 있던 것입니다.');
+      console.error('  → 이 옵션을 켜고 다시 캡처하세요.');
+    } else {
+      console.error('진단: 본문은 캡처되었지만 유효한 schedules JSON이 없습니다.');
+      console.error('  → 페이지 로드가 완료되지 않았을 수 있습니다. 경기 카드를 확인하고 재캡처하세요.');
+    }
     if (DEBUG) diagnose(apiRequests);
     process.exit(3);
   }
