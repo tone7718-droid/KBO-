@@ -31,10 +31,13 @@ const INSECURE = /^(1|true|yes|on)$/i.test(process.env.SCRAPER_INSECURE || '');
 const DESKTOP_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
-// 예매 URL 패턴. 티켓링크는 productId(경로) + scheduleId(쿼리) 둘 다 필요합니다.
-// 환경변수로 오버라이드 가능. 두 자리표시자 모두 치환됨.
+// /reserve/product/{productId}?scheduleId={scheduleId} 직접 deep-link 는 NetFunnel
+// 대기열 key 가 없으면 차단된다 (error.netfunnel.invalid.key). 일정 목록 페이지의
+// 정식 "예매하기" 버튼만 NetFunnel 을 정상 트리거하므로 그곳을 기본 진입점으로
+// 사용. scheduleId/productId 는 데이터에 보존하여 향후 동작하는 패턴이 발견되면
+// 재활용 가능. 환경변수로 오버라이드 가능.
 const BOOKING_URL_PATTERN = process.env.TICKETLINK_BOOKING_URL_PATTERN
-  || 'https://m.ticketlink.co.kr/reserve/product/{productId}?scheduleId={scheduleId}';
+  || 'https://m.ticketlink.co.kr/sports/137/57';
 
 // API 조회 기간 (YYYYMMDD). 오늘부터 N일 후까지.
 const API_DAYS_AHEAD = Number(process.env.TICKETLINK_API_DAYS_AHEAD || 90);

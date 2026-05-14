@@ -30,8 +30,14 @@ const zlib = require('node:zlib');
 const NETLOG_PATH = process.argv[2];
 const OUTPUT_PATH = path.resolve(process.cwd(), 'booking-data.json');
 const SOURCE_URL = process.env.TICKETLINK_SAMSUNG_URL || 'https://m.ticketlink.co.kr/sports/137/57';
+// 직접 deep-link (/reserve/product/{productId}?scheduleId={scheduleId}) 는 NetFunnel
+// 대기열 key 가 없으면 차단된다 (error.netfunnel.invalid.key). 경기별 페이지
+// (/sports/137/57/{scheduleId}) 도 SPA 라우트 미매칭으로 빈 화면. 안정적인 진입점은
+// 일정 목록 페이지뿐이며, 사용자가 그곳의 정식 "예매하기" 버튼을 눌러야 NetFunnel
+// 이 트리거된다. scheduleId/productId 는 데이터에 보존하여 향후 동작하는 패턴이
+// 발견되면 즉시 재활용 가능.
 const BOOKING_URL_PATTERN = process.env.TICKETLINK_BOOKING_URL_PATTERN
-  || 'https://m.ticketlink.co.kr/reserve/product/{productId}?scheduleId={scheduleId}';
+  || 'https://m.ticketlink.co.kr/sports/137/57';
 const KST_TIME_ZONE = 'Asia/Seoul';
 const DEBUG = !!process.env.NETLOG_DEBUG;
 

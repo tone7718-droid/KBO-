@@ -92,6 +92,14 @@ GET https://mapi.ticketlink.co.kr/mapi/sports/schedules
 - 또는 JSON `{"success":false, "code":7200}`
 - `_px*` 쿠키 관여
 
+### 5.4 NetFunnel 대기열 게이트 — 직접 deep-link 불가
+`/reserve/product/{productId}?scheduleId={scheduleId}` 는 NetFunnel 일회용 key
+없이 접근하면 `error.netfunnel.invalid.key` 로 차단된다. 경기별 페이지
+`/sports/137/57/{scheduleId}` 는 빈 화면. **유일하게 동작하는 진입점은 일정 목록
+페이지 `/sports/137/57` 뿐**이며, 사용자가 그 페이지의 정식 "예매하기" 버튼을
+직접 눌러야 NetFunnel 이 정상 트리거된다. `scheduleId`/`productId` 는 데이터에
+보존하되 `bookingUrl` 은 일정 목록 페이지로 통일한다.
+
 ---
 
 ## 6. 데이터 수집 전략
