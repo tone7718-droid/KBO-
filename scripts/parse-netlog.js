@@ -58,9 +58,26 @@ function buildBookingUrl(productId, scheduleId) {
     .replace(/\{scheduleId\}/g, encodeURIComponent(String(scheduleId)));
 }
 
-function parseDateTime(str) {
-  if (!str) return { date: null, time: null };
-  const s = String(str);
+function parseDateTime(input) {
+  if (input == null || input === '') return { date: null, time: null };
+
+  // 1) Unix 타임스탬프(숫자 또는 10~13자리 숫자 문자열) → KST 변환
+  if (typeof input === 'number' || /^\d{10,13}$/.test(String(input))) {
+    let ms = Number(input);
+    if (!Number.isFinite(ms)) return { date: null, time: null };
+    if (ms < 1e12) ms *= 1000; // 10자리(초)면 ms 로 변환
+    const d = new Date(ms);
+    if (!Number.isFinite(d.getTime())) return { date: null, time: null };
+    // KST(UTC+9). 티켓링크는 KST 기준 시각이 의미적으로 정확.
+    const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      date: `${kst.getUTCFullYear()}-${pad(kst.getUTCMonth() + 1)}-${pad(kst.getUTCDate())}`,
+      time: `${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}:${pad(kst.getUTCSeconds())}`,
+    };
+  }
+
+  const s = String(input);
   let m = s.match(/(\d{4})-?(\d{2})-?(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (m) return { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}:${m[6] || '00'}` };
   m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?$/);
