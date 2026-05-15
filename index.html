@@ -237,10 +237,17 @@
           btn.type = 'button';
           btn.className = 'game-btn';
           btn.dataset.gameId = game.id;
-          const dateStr = game.date || '날짜 미정';
-          const timeStr = game.time || '--:--';
+          // 경기 날짜/시간이 있으면 그것, 없으면 예매 오픈 시각으로 폴백
+          let dateLine;
+          if (game.date) {
+            dateLine = `${game.date}${game.time ? ` · ${game.time.slice(0, 5)}` : ''}`;
+          } else {
+            const openD = new Date(game.openMs);
+            const pad = (n) => String(n).padStart(2, '0');
+            dateLine = `예매 오픈 ${openD.getFullYear()}-${pad(openD.getMonth() + 1)}-${pad(openD.getDate())} ${pad(openD.getHours())}:${pad(openD.getMinutes())}`;
+          }
           btn.innerHTML = `
-            <span class="game-date">${dateStr} · ${timeStr}</span>
+            <span class="game-date">${dateLine}</span>
             <span class="game-title">${gameTitle(game)}</span>
             <span class="game-meta">
               <span>${(game.venueName || '').trim() || '경기장 미정'}</span>

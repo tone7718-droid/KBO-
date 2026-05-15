@@ -747,13 +747,47 @@ const API_SCHEDULE_DATE_KEYS = [
   'scheduleDate', 'scheduleDateTime', 'scheduleStartDate', 'scheduleStartDateTime',
   'gameDate', 'gameDateTime', 'gameStartDate', 'gameStartDateTime',
   'startDate', 'startDateTime', 'playDate', 'playDateTime', 'displayDate',
+  'eventDate', 'eventDateTime', 'eventStartDate', 'eventStartDateTime',
+  'showDate', 'showDateTime', 'showStartDate',
 ];
+
+function findApiScheduleDateHeuristic(s) {
+  const isPlausibleMs = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return false;
+    if (n >= 1577836800000 && n <= 2524608000000) return true;
+    if (n >= 1577836800 && n <= 2524608000) return true;
+    return false;
+  };
+  const isPlausibleIso = (v) => typeof v === 'string' && (
+    /^\d{4}-?\d{2}-?\d{2}/.test(v) || /^\d{12,14}$/.test(v)
+  );
+  const candidates = [];
+  for (const [key, val] of Object.entries(s)) {
+    if (val == null || val === '' || typeof val === 'object') continue;
+    if (/reserve|close|end|expire|create|modif|update|cancel/i.test(key)) continue;
+    if (!/date|time|schedule|game|play|event|show|start/i.test(key)) continue;
+    if (!isPlausibleMs(val) && !isPlausibleIso(val)) continue;
+    let score = 0;
+    if (/schedule/i.test(key)) score += 100;
+    else if (/game/i.test(key)) score += 80;
+    else if (/event/i.test(key)) score += 70;
+    else if (/show/i.test(key)) score += 60;
+    else if (/play/i.test(key)) score += 50;
+    else if (/start/i.test(key)) score += 30;
+    if (/datetime|dateTime/i.test(key)) score += 5;
+    candidates.push({ val, score });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].val;
+}
 
 function pickApiScheduleDate(s) {
   for (const k of API_SCHEDULE_DATE_KEYS) {
     if (s[k] != null && s[k] !== '') return s[k];
   }
-  return null;
+  return findApiScheduleDateHeuristic(s);
 }
 
 function mapApiSchedule(s) {

@@ -99,21 +99,60 @@ const SCHEDULE_DATE_KEYS = [
   'scheduleDate', 'scheduleDateTime', 'scheduleStartDate', 'scheduleStartDateTime',
   'gameDate', 'gameDateTime', 'gameStartDate', 'gameStartDateTime',
   'startDate', 'startDateTime', 'playDate', 'playDateTime', 'displayDate',
+  'eventDate', 'eventDateTime', 'eventStartDate', 'eventStartDateTime',
+  'showDate', 'showDateTime', 'showStartDate',
 ];
+
+// 명시된 키 후보가 모두 실패할 때 사용하는 휴리스틱.
+// "schedule/game/play/event/show/start" + "date/time" 패턴의 키 중에서
+// 값이 유닉스 ms(2020~2050) 또는 ISO 문자열인 것을 찾아 점수가 높은 것을 선택.
+function findScheduleDateHeuristic(s) {
+  const isPlausibleMs = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return false;
+    if (n >= 1577836800000 && n <= 2524608000000) return true; // 2020~2050 ms
+    if (n >= 1577836800 && n <= 2524608000) return true;       // 2020~2050 sec
+    return false;
+  };
+  const isPlausibleIso = (v) => typeof v === 'string' && (
+    /^\d{4}-?\d{2}-?\d{2}/.test(v) || /^\d{12,14}$/.test(v)
+  );
+  const candidates = [];
+  for (const [key, val] of Object.entries(s)) {
+    if (val == null || val === '') continue;
+    if (typeof val === 'object') continue;
+    // 'reserve', 'close', 'end', 'expire', 'create', 'modif', 'update' 는 경기 시각이 아님.
+    if (/reserve|close|end|expire|create|modif|update|cancel/i.test(key)) continue;
+    if (!/date|time|schedule|game|play|event|show|start/i.test(key)) continue;
+    if (!isPlausibleMs(val) && !isPlausibleIso(val)) continue;
+    let score = 0;
+    if (/schedule/i.test(key)) score += 100;
+    else if (/game/i.test(key)) score += 80;
+    else if (/event/i.test(key)) score += 70;
+    else if (/show/i.test(key)) score += 60;
+    else if (/play/i.test(key)) score += 50;
+    else if (/start/i.test(key)) score += 30;
+    if (/datetime|dateTime/i.test(key)) score += 5; // datetime > date 선호
+    candidates.push({ key, val, score });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return { value: candidates[0].val, sourceKey: candidates[0].key };
+}
 
 function pickScheduleDate(s) {
   for (const k of SCHEDULE_DATE_KEYS) {
-    if (s[k] != null && s[k] !== '') return s[k];
+    if (s[k] != null && s[k] !== '') return { value: s[k], sourceKey: k };
   }
-  return null;
+  return findScheduleDateHeuristic(s) || { value: null, sourceKey: null };
 }
 
 function mapApiSchedule(s) {
   const home = s.homeTeam?.teamName || '';
   const away = s.awayTeam?.teamName || '';
   const opponent = /삼성|라이온즈/.test(home) ? away : home;
-  const rawScheduleDate = pickScheduleDate(s);
-  const { date, time } = parseDateTime(rawScheduleDate);
+  const picked = pickScheduleDate(s);
+  const { date, time } = parseDateTime(picked.value);
   const reserve = parseDateTime(s.reserveOpenDate);
   const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
   // ON_SALE / RESERVE_OPEN / OPENED 등 = 실제 오픈 상태.
@@ -426,15 +465,25 @@ async function main() {
 
   const games = schedules.map(mapApiSchedule);
 
-  // 진단: date/time 추출 실패율이 높으면 사용자가 디버그할 수 있게 첫 스케줄의
-  // 필드명을 출력. 알 수 없는 필드 이름이면 SCHEDULE_DATE_KEYS 에 추가하면 됨.
+  // 진단: date 추출 실패율이 높으면 첫 스케줄의 키 구조를 보여주어
+  // SCHEDULE_DATE_KEYS 에 추가할 필드명을 식별할 수 있게 함.
   const nullDateCount = games.filter((g) => !g.date).length;
   if (nullDateCount > 0 && schedules.length > 0) {
     const first = schedules[0] || {};
-    const dateLikeKeys = Object.keys(first).filter((k) => /date|time|schedule|start|play|game/i.test(k));
+    const allKeys = Object.keys(first);
+    const dateLikeKeys = allKeys.filter((k) => /date|time|schedule|start|play|game|event|show/i.test(k));
     log(`⚠ ${nullDateCount}/${games.length}개 경기의 date 추출 실패.`);
     log(`  첫 스케줄의 날짜성 필드: ${dateLikeKeys.map((k) => `${k}=${JSON.stringify(first[k])}`).join(', ') || '(없음)'}`);
+    if (dateLikeKeys.length === 0) {
+      log(`  전체 키 목록(${allKeys.length}개): ${allKeys.join(', ')}`);
+    }
     log(`  → 새 필드 이름이 보이면 scripts/parse-netlog.js 의 SCHEDULE_DATE_KEYS 에 추가하세요.`);
+  } else if (schedules.length > 0) {
+    const first = schedules[0];
+    const sourceKey = pickScheduleDate(first).sourceKey;
+    if (sourceKey && sourceKey !== 'scheduleDate') {
+      log(`ℹ date 필드명 감지: '${sourceKey}' (heuristic 또는 후보 매칭)`);
+    }
   }
 
   const payload = {
