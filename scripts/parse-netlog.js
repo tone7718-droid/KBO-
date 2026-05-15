@@ -93,16 +93,41 @@ function parseDateTime(input) {
   return { date: null, time: null };
 }
 
+// 티켓링크 API 의 경기 일시 필드명은 응답에 따라 다양함.
+// 후보 필드를 순차 시도해 첫 번째 유효한 값으로 파싱.
+const SCHEDULE_DATE_KEYS = [
+  'scheduleDate', 'scheduleDateTime', 'scheduleStartDate', 'scheduleStartDateTime',
+  'gameDate', 'gameDateTime', 'gameStartDate', 'gameStartDateTime',
+  'startDate', 'startDateTime', 'playDate', 'playDateTime', 'displayDate',
+];
+
+function pickScheduleDate(s) {
+  for (const k of SCHEDULE_DATE_KEYS) {
+    if (s[k] != null && s[k] !== '') return s[k];
+  }
+  return null;
+}
+
 function mapApiSchedule(s) {
   const home = s.homeTeam?.teamName || '';
   const away = s.awayTeam?.teamName || '';
   const opponent = /삼성|라이온즈/.test(home) ? away : home;
-  const { date, time } = parseDateTime(s.scheduleDate);
+  const rawScheduleDate = pickScheduleDate(s);
+  const { date, time } = parseDateTime(rawScheduleDate);
   const reserve = parseDateTime(s.reserveOpenDate);
   const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
-  // RESERVE_OPEN / OPENED 는 진짜 오픈, NOT_OPEN / BEFORE_OPEN / OPEN_BEFORE 는 오픈 전.
+  // ON_SALE / RESERVE_OPEN / OPENED 등 = 실제 오픈 상태.
+  // BEFORE_OPEN / NOT_OPEN / OPEN_BEFORE / PRE_OPEN = 오픈 전.
+  // SOLD_OUT / CLOSED = 종료. (오픈은 됐었음)
   const status = String(s.reserveButtonStatus || '').toUpperCase();
-  const isOpen = status.includes('OPEN') && !status.includes('NOT') && !status.includes('BEFORE');
+  const PRE_OPEN_STATUSES = ['BEFORE_OPEN', 'NOT_OPEN', 'OPEN_BEFORE', 'PRE_OPEN'];
+  const isPreOpen = PRE_OPEN_STATUSES.includes(status);
+  const isOpen = !isPreOpen && (
+    status === 'ON_SALE'
+    || status === 'OPENED'
+    || status === 'RESERVE_OPEN'
+    || status === 'OPEN'
+  );
   return {
     id: String(s.scheduleId),
     team: '삼성 라이온즈',
@@ -124,7 +149,7 @@ function mapApiSchedule(s) {
     waitingAvailable: !!s.waitingReservation?.waitingReservationUse,
     bookingUrl: s.productId ? buildBookingUrl(s.productId, s.scheduleId) : null,
     sourceUrl: SOURCE_URL,
-    preOpen: !isOpen,
+    preOpen: isPreOpen,
   };
 }
 
@@ -400,6 +425,18 @@ async function main() {
   log(`  status=${pickedReq.status} schedules=${schedules.length}`);
 
   const games = schedules.map(mapApiSchedule);
+
+  // 진단: date/time 추출 실패율이 높으면 사용자가 디버그할 수 있게 첫 스케줄의
+  // 필드명을 출력. 알 수 없는 필드 이름이면 SCHEDULE_DATE_KEYS 에 추가하면 됨.
+  const nullDateCount = games.filter((g) => !g.date).length;
+  if (nullDateCount > 0 && schedules.length > 0) {
+    const first = schedules[0] || {};
+    const dateLikeKeys = Object.keys(first).filter((k) => /date|time|schedule|start|play|game/i.test(k));
+    log(`⚠ ${nullDateCount}/${games.length}개 경기의 date 추출 실패.`);
+    log(`  첫 스케줄의 날짜성 필드: ${dateLikeKeys.map((k) => `${k}=${JSON.stringify(first[k])}`).join(', ') || '(없음)'}`);
+    log(`  → 새 필드 이름이 보이면 scripts/parse-netlog.js 의 SCHEDULE_DATE_KEYS 에 추가하세요.`);
+  }
+
   const payload = {
     team: 'Samsung Lions',
     teamKo: '삼성 라이온즈',

@@ -742,18 +742,39 @@ function parseDateTime(input) {
   return { date: null, time: null };
 }
 
+// 티켓링크 API 의 경기 일시 필드명은 응답에 따라 다양함.
+const API_SCHEDULE_DATE_KEYS = [
+  'scheduleDate', 'scheduleDateTime', 'scheduleStartDate', 'scheduleStartDateTime',
+  'gameDate', 'gameDateTime', 'gameStartDate', 'gameStartDateTime',
+  'startDate', 'startDateTime', 'playDate', 'playDateTime', 'displayDate',
+];
+
+function pickApiScheduleDate(s) {
+  for (const k of API_SCHEDULE_DATE_KEYS) {
+    if (s[k] != null && s[k] !== '') return s[k];
+  }
+  return null;
+}
+
 function mapApiSchedule(s) {
   const home = s.homeTeam?.teamName || '';
   const away = s.awayTeam?.teamName || '';
   const opponent = /삼성|라이온즈/.test(home) ? away : home;
 
-  const { date, time } = parseDateTime(s.scheduleDate);
+  const { date, time } = parseDateTime(pickApiScheduleDate(s));
   const reserve = parseDateTime(s.reserveOpenDate);
   const targetTime = reserve.time ? `${reserve.time}.000` : '11:00:00.000';
 
-  // RESERVE_OPEN / OPENED 는 진짜 오픈, NOT_OPEN / BEFORE_OPEN / OPEN_BEFORE 는 오픈 전.
+  // ON_SALE / RESERVE_OPEN / OPENED = 실제 오픈. BEFORE_OPEN / NOT_OPEN = 오픈 전.
   const reserveStatus = String(s.reserveButtonStatus || '').toUpperCase();
-  const isOpen = reserveStatus.includes('OPEN') && !reserveStatus.includes('NOT') && !reserveStatus.includes('BEFORE');
+  const PRE_OPEN_STATUSES = ['BEFORE_OPEN', 'NOT_OPEN', 'OPEN_BEFORE', 'PRE_OPEN'];
+  const isPreOpen = PRE_OPEN_STATUSES.includes(reserveStatus);
+  const isOpen = !isPreOpen && (
+    reserveStatus === 'ON_SALE'
+    || reserveStatus === 'OPENED'
+    || reserveStatus === 'RESERVE_OPEN'
+    || reserveStatus === 'OPEN'
+  );
 
   return {
     id: String(s.scheduleId),
@@ -776,7 +797,7 @@ function mapApiSchedule(s) {
     waitingAvailable: !!s.waitingReservation?.waitingReservationUse,
     bookingUrl: s.productId ? buildBookingUrl(s.productId, s.scheduleId) : null,
     sourceUrl: SOURCE_URL,
-    preOpen: !isOpen,
+    preOpen: isPreOpen,
   };
 }
 
