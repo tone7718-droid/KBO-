@@ -14,6 +14,7 @@
     .brand{display:flex;align-items:center;gap:12px;margin-bottom:18px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-size:12px;font-weight:850}.mark{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;color:#020617;background:linear-gradient(135deg,var(--accent),var(--green));box-shadow:0 0 36px rgba(56,189,248,.34);font-weight:950}
     .dashboard{border:1px solid var(--border);border-radius:28px;background:linear-gradient(180deg,rgba(15,23,42,.88),rgba(2,6,23,.9));box-shadow:var(--shadow);backdrop-filter:blur(24px);overflow:hidden}
     .hero{padding:clamp(28px,4vw,52px);border-bottom:1px solid var(--border);text-align:center}.eyebrow{margin:0 0 18px;color:var(--accent);font-size:12px;font-weight:950;letter-spacing:.28em;text-transform:uppercase}
+    .tier-selector{display:inline-flex;gap:4px;margin:0 0 20px;padding:4px;border:1px solid var(--border);border-radius:14px;background:rgba(2,6,23,.42)}.tier-btn{min-height:38px;padding:6px 14px;border:0;border-radius:10px;background:transparent;color:var(--muted);font-weight:850;font-size:13px;cursor:pointer;transition:.14s}.tier-btn:hover{color:var(--text)}.tier-btn[aria-pressed="true"]{background:linear-gradient(135deg,rgba(56,189,248,.18),rgba(52,211,153,.14));color:var(--text);box-shadow:inset 0 0 0 1px rgba(56,189,248,.32)}.tier-note{margin:14px 0 0;color:var(--soft);font-size:11px;line-height:1.5;letter-spacing:.02em}.tier-note.warn{color:var(--amber)}
     .selected-card{padding:26px 18px;border:1px solid var(--border);border-radius:22px;background:rgba(2,6,23,.42)}.selected-label{margin:0 0 8px;color:var(--soft);font-size:11px;font-weight:950;letter-spacing:.18em;text-transform:uppercase}.selected-game{margin:0 0 16px;font-size:clamp(15px,2.4vw,18px);font-weight:850;color:var(--text);line-height:1.4;min-height:24px}.countdown{margin:0;font-family:"JetBrains Mono","Roboto Mono","SF Mono",Menlo,Consolas,monospace;font-size:clamp(40px,9vw,86px);font-weight:800;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums slashed-zero;font-feature-settings:"tnum" 1,"zero" 1;color:var(--green);text-shadow:0 2px 24px rgba(52,211,153,.18)}.countdown.idle{color:var(--soft)}
     .current{margin-top:18px;color:var(--muted);font-size:13px;line-height:1.6}.current strong{color:var(--text);font-family:"JetBrains Mono",monospace;font-weight:700;font-variant-numeric:tabular-nums slashed-zero}
     .actions{margin-top:24px;display:grid;gap:12px;justify-items:center}
@@ -30,10 +31,17 @@
     <main class="dashboard">
       <section class="hero">
         <p class="eyebrow">Server Synced Millisecond Countdown</p>
+        <div class="tier-selector" role="radiogroup" aria-label="회원 등급">
+          <button class="tier-btn" type="button" data-tier="general" aria-pressed="true">일반</button>
+          <button class="tier-btn" type="button" data-tier="gold" aria-pressed="false">Gold</button>
+          <button class="tier-btn" type="button" data-tier="silver" aria-pressed="false">Silver</button>
+          <button class="tier-btn" type="button" data-tier="bronze" aria-pressed="false">Bronze</button>
+        </div>
         <article class="selected-card" aria-live="polite">
-          <p class="selected-label">선택된 경기 예매 오픈까지</p>
+          <p class="selected-label" id="selectedLabel">선택된 경기 예매 오픈까지</p>
           <p class="selected-game" id="selectedGame">경기를 선택하세요</p>
           <p class="countdown idle" id="countdown">--:--:--.---</p>
+          <p class="tier-note" id="tierNote">공식 일반 예매 기준</p>
         </article>
         <p class="current">현재 시각 <strong id="currentTime">00:00:00.000</strong> · <span id="dateText">날짜 계산 중</span></p>
         <div class="actions">
@@ -65,11 +73,33 @@
       const TIME_PROXY_PATH = '/api/time';
       const BOOKING_DATA_PATH = './booking-data.json';
       const TICKETLINK_URL = 'https://m.ticketlink.co.kr/sports/137/57';
+      const TIER_STORAGE_KEY = 'kbo-membership-tier';
+
+      // 삼성 라이온즈 블루멤버십 선예매 규칙 (추정 — 공지와 대조 필요).
+      // 일반 예매 시각(reserveOpenDate)을 기준으로 KST 절대 시각으로 보정.
+      const TIER_CONFIG = {
+        general: { label: '일반회원', sub: '공식 일반 예매 기준', dayDelta: 0, hour: null, min: 0 },
+        gold:    { label: 'Gold',    sub: '삼성 라이온즈 블루멤버십 Gold 기준 — 추정치, 공식 공지와 대조 필요',   dayDelta: -2, hour: 14, min: 0 },
+        silver:  { label: 'Silver',  sub: '삼성 라이온즈 블루멤버십 Silver 기준 — 추정치, 공식 공지와 대조 필요', dayDelta: -1, hour: 11, min: 0 },
+        bronze:  { label: 'Bronze',  sub: '삼성 라이온즈 블루멤버십 Bronze 기준 — 추정치, 공식 공지와 대조 필요', dayDelta: -1, hour: 14, min: 0 },
+      };
+      const VALID_TIERS = Object.keys(TIER_CONFIG);
+
+      function tierOpenMs(generalOpenMs, tier) {
+        const c = TIER_CONFIG[tier];
+        if (!c || c.hour == null || !Number.isFinite(generalOpenMs)) return generalOpenMs;
+        const kstShift = 9 * 3600 * 1000;
+        const kst = new Date(generalOpenMs + kstShift);
+        // KST 의 (y, m, d+dayDelta, hour, min) 을 UTC 로 환산해 ms 반환
+        return Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() + c.dayDelta, c.hour - 9, c.min, 0, 0);
+      }
 
       const $ = (id) => document.getElementById(id);
       const els = {
         countdown: $('countdown'),
         selectedGame: $('selectedGame'),
+        selectedLabel: $('selectedLabel'),
+        tierNote: $('tierNote'),
         currentTime: $('currentTime'),
         dateText: $('dateText'),
         alertToggle: $('alertToggle'),
@@ -77,13 +107,21 @@
         alertSub: $('alertSub'),
         gameList: $('gameList'),
         status: $('status'),
+        tierBtns: [...document.querySelectorAll('.tier-btn')],
       };
+
+      function loadTier() {
+        try { const t = localStorage.getItem(TIER_STORAGE_KEY); if (VALID_TIERS.includes(t)) return t; } catch {}
+        return 'general';
+      }
+      function saveTier(t) { try { localStorage.setItem(TIER_STORAGE_KEY, t); } catch {} }
 
       const state = {
         localOffset: Date.now() - performance.now(),
         serverOffset: 0,
         games: [],
         selectedId: null,
+        tier: loadTier(),
         firedAlerts: new Set(),
         lastDiff: null,
         lastRenderedSec: -1,
@@ -206,6 +244,9 @@
         const opp = game.opponent || '';
         return opp ? `삼성 vs ${opp}` : '삼성 라이온즈 경기';
       }
+      // 현재 선택된 회원 등급 기준 effective open ms
+      function effectiveOpenMs(game) { return tierOpenMs(game.openMs, state.tier); }
+
       function selectGame(id) {
         state.selectedId = id;
         state.firedAlerts = new Set();
@@ -214,15 +255,33 @@
         els.selectedGame.textContent = game ? gameTitle(game) + (game.venueName ? ` · ${game.venueName.trim()}` : '') : '경기를 선택하세요';
         [...els.gameList.querySelectorAll('.game-btn')].forEach((btn) => btn.classList.toggle('selected', btn.dataset.gameId === id));
       }
+
+      function applyTier(newTier) {
+        if (!VALID_TIERS.includes(newTier)) return;
+        state.tier = newTier;
+        saveTier(newTier);
+        // 임계값 발사 상태 초기화 (새 기준 시각에 맞춰 재무장)
+        state.firedAlerts = new Set();
+        state.lastDiff = null;
+        // 버튼 aria-pressed
+        for (const btn of els.tierBtns) btn.setAttribute('aria-pressed', btn.dataset.tier === newTier ? 'true' : 'false');
+        // 레이블
+        const c = TIER_CONFIG[newTier];
+        els.selectedLabel.textContent = newTier === 'general' ? '선택된 경기 예매 오픈까지' : `선택된 경기 ${c.label} 선예매 오픈까지`;
+        els.tierNote.textContent = c.sub;
+        els.tierNote.classList.toggle('warn', newTier !== 'general');
+        // 미니 카운트다운 즉시 갱신 (초 단위 게이트 우회)
+        state.lastRenderedSec = -1;
+      }
       function renderGameList(games, meta) {
         const now = correctedNow();
-        // openMs 가 있는 경기만, 미래 우선 정렬
+        // openMs(일반 예매 기준) 가 있는 경기만, 일반 기준으로 정렬. 등급 보정은 표시 시점에만.
         const enriched = games
           .map((g, i) => ({ ...g, id: g.id || `g${i}`, openMs: openMsOf(g) }))
           .filter((g) => g.openMs && g.bookingUrl)
           .sort((a, b) => a.openMs - b.openMs);
         state.games = enriched;
-        const upcoming = enriched.filter((g) => g.openMs > now);
+        const upcoming = enriched.filter((g) => effectiveOpenMs(g) > now);
         const updated = meta?.updatedAt ? new Date(meta.updatedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '알 수 없음';
         els.gameList.innerHTML = '';
         if (!enriched.length) {
@@ -306,10 +365,10 @@
         const now = correctedNow();
         els.currentTime.textContent = formatTime(now);
 
-        // selected countdown
+        // selected countdown — 현재 등급의 effective open 기준
         const selected = state.games.find((g) => g.id === state.selectedId);
         if (selected) {
-          const diff = selected.openMs - now;
+          const diff = effectiveOpenMs(selected) - now;
           els.countdown.textContent = diff > 0 ? formatDuration(diff) : '00:00:00.000';
           els.countdown.classList.toggle('idle', false);
           checkAlerts(diff);
@@ -318,14 +377,14 @@
           els.countdown.classList.add('idle');
         }
 
-        // mini countdowns (초당 1회만 갱신)
+        // mini countdowns (초당 1회만 갱신) — 현재 등급의 effective open 기준
         const curSec = Math.floor(now / 1000);
         if (curSec !== state.lastRenderedSec) {
           state.lastRenderedSec = curSec;
           for (const game of state.games) {
             const el = els.gameList.querySelector(`[data-mini="${game.id}"]`);
             if (!el) continue;
-            const diff = game.openMs - now;
+            const diff = effectiveOpenMs(game) - now;
             el.textContent = formatMini(diff);
             el.classList.toggle('past', diff <= 0);
           }
@@ -344,6 +403,9 @@
         if (audio.armed) audio.disable(); else await audio.enable();
         updateAlertToggleUI();
       });
+      for (const btn of els.tierBtns) {
+        btn.addEventListener('click', () => applyTier(btn.dataset.tier));
+      }
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           resyncLocalClock(true);
@@ -352,6 +414,7 @@
       });
 
       updateAlertToggleUI();
+      applyTier(state.tier); // localStorage 에서 복원한 등급으로 UI 초기화
       resyncLocalClock(true);
       loadBookingData().then(() => syncWithServer());
       setInterval(syncWithServer, 60_000);

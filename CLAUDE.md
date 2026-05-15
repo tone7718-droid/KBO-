@@ -97,8 +97,25 @@ GET https://mapi.ticketlink.co.kr/mapi/sports/schedules
 없이 접근하면 `error.netfunnel.invalid.key` 로 차단된다. 경기별 페이지
 `/sports/137/57/{scheduleId}` 는 빈 화면. **유일하게 동작하는 진입점은 일정 목록
 페이지 `/sports/137/57` 뿐**이며, 사용자가 그 페이지의 정식 "예매하기" 버튼을
-직접 눌러야 NetFunnel 이 정상 트리거된다. `scheduleId`/`productId` 는 데이터에
+직접 누르면 NetFunnel 이 정상 트리거된다. `scheduleId`/`productId` 는 데이터에
 보존하되 `bookingUrl` 은 일정 목록 페이지로 통일한다.
+
+### 5.5 삼성 라이온즈 블루멤버십 선예매 규칙 (추정)
+정규시즌 일반예매보다 멤버십 등급별로 선예매가 가능하다.
+
+| 등급 | 선예매 시점 |
+|---|---|
+| Gold   | 일반예매 2일 전 14:00 KST |
+| Silver | 일반예매 1일 전 11:00 KST |
+| Bronze | 일반예매 1일 전 14:00 KST |
+| 일반   | 공식 일반예매 시각 |
+
+- 이는 티켓링크 자체 회원등급이 아니라 **삼성 라이온즈 블루멤버십** 권한이다.
+- API 의 `reserveOpenDate` 가 일반예매 기준인지, 로그인된 멤버십 권한 기준인지는
+  실제 NetLog/API 응답으로 검증 필요. 추정.
+- `index.html` 의 등급 선택 UI 는 `reserveOpenDate` 를 일반예매 기준으로 가정하고
+  KST 절대 시각으로 위 규칙을 적용해 effective open 을 계산한다 (`tierOpenMs`).
+- Silver/Gold/Bronze 카운트다운은 **추정치**이며 공식 공지와 대조해 확인할 것.
 
 ---
 
