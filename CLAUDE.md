@@ -60,7 +60,7 @@ git push -u origin claude/fix-bot-detection-vuHxc
 
 | 파일 | 역할 |
 |---|---|
-| `index.html` | requestAnimationFrame 정밀 시계, `/api/time` 동기화, `booking-data.json` 기반 예매 버튼, WebAudio T-5분/T-1분/T-0 알림 |
+| `index.html` | 미니멀 카운트다운 대시보드. 서버 시계 동기화 + 경기 선택 + WebAudio T-5분/T-1분/T-0 알림. 예매 버튼/메트릭/수동 폼 등 비핵심 UI 제거됨 |
 | `api/time.js` | Vercel Function. 티켓링크 Date 헤더 + WorldTimeAPI 동시 폴링, `proxyRtt` 반환 |
 | `vercel.json` | Vercel 라우팅 및 보안 헤더 |
 | `booking-data.json` | 시계/버튼 UI 가 읽는 결과 파일 |
