@@ -1,9 +1,11 @@
 name: Daily Samsung Lions booking update
 
+# NOTE: 자동 daily cron 비활성화됨.
+# CI 환경은 PerimeterX 에 차단되어 dom-fallback 으로 쓰레기 데이터를 긁고,
+# git-auto-commit 이 그것을 main 에 덮어써 배포를 망가뜨린 사례가 있었음.
+# 데이터 갱신은 사용자가 NetLog 캡처 후 parse:netlog 로 수동 수행한다.
+# 필요 시에만 GitHub UI 에서 수동 실행(workflow_dispatch).
 on:
-  schedule:
-    # 09:00 KST = 00:00 UTC
-    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:
