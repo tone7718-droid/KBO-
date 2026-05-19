@@ -19,7 +19,7 @@
     .current{margin-top:18px;color:var(--muted);font-size:13px;line-height:1.6}.current strong{color:var(--text);font-family:"JetBrains Mono",monospace;font-weight:700;font-variant-numeric:tabular-nums slashed-zero}
     .actions{margin-top:24px;display:grid;gap:12px;justify-items:center}
     .alert-toggle{width:min(420px,100%);min-height:64px;display:flex;align-items:center;gap:12px;border:1px solid var(--border);background:rgba(15,23,42,.72);color:var(--text);padding:14px 20px;border-radius:18px;cursor:pointer;font-weight:850;text-align:left;transition:.14s}.alert-toggle:hover{border-color:rgba(56,189,248,.45);transform:translateY(-1px)}.alert-dot{width:12px;height:12px;border-radius:50%;background:var(--soft);flex-shrink:0;transition:.2s}.alert-toggle[aria-pressed="true"] .alert-dot{background:var(--green);box-shadow:0 0 14px rgba(52,211,153,.7),0 0 0 4px rgba(52,211,153,.18);animation:dot 1.6s ease-in-out infinite}.alert-text{flex:1;display:flex;flex-direction:column;gap:2px}.alert-title{font-size:15px;font-weight:900}.alert-sub{color:var(--muted);font-size:12px;font-weight:600}@keyframes dot{0%,100%{box-shadow:0 0 14px rgba(52,211,153,.7),0 0 0 4px rgba(52,211,153,.18)}50%{box-shadow:0 0 18px rgba(52,211,153,.95),0 0 0 8px rgba(52,211,153,.08)}}
-    .open-link{width:min(420px,100%);min-height:56px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(56,189,248,.32);border-radius:14px;padding:14px 20px;color:var(--text);background:rgba(15,23,42,.72);text-decoration:none;font-weight:900;font-size:15px;transition:.14s}.open-link:hover{border-color:var(--accent);transform:translateY(-1px);background:rgba(56,189,248,.08)}
+    .open-link{width:min(420px,100%);min-height:56px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(56,189,248,.32);border-radius:14px;padding:14px 20px;color:var(--text);background:rgba(15,23,42,.72);font-weight:900;font-size:15px;cursor:pointer;transition:.14s}.open-link:not(:disabled):hover{border-color:var(--accent);transform:translateY(-1px);background:rgba(56,189,248,.08)}.open-link:disabled{cursor:not-allowed;color:var(--soft);border-color:var(--border);background:rgba(15,23,42,.5)}.open-link.live{border-color:var(--green);color:var(--text);background:rgba(52,211,153,.12);animation:bookpulse 1.4s ease-in-out infinite}.open-link.live:hover{border-color:var(--green);background:rgba(52,211,153,.16)}@keyframes bookpulse{0%,100%{box-shadow:0 0 0 4px rgba(52,211,153,.14),0 0 24px rgba(52,211,153,.28)}50%{box-shadow:0 0 0 7px rgba(52,211,153,.08),0 0 30px rgba(52,211,153,.45)}}
     .games{padding:24px}.games-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}.games-title{margin:0;font-size:15px;font-weight:950;letter-spacing:-.02em}.games-status{margin:0;color:var(--muted);font-size:12px}.games-status.warn{color:var(--amber)}
     .game-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.game-btn{min-height:104px;border:1px solid var(--border);border-radius:18px;background:rgba(15,23,42,.88);color:var(--text);padding:18px;text-align:left;cursor:pointer;transition:.14s;display:flex;flex-direction:column;gap:6px}.game-btn:hover{border-color:rgba(56,189,248,.4);transform:translateY(-1px)}.game-btn.selected{border-color:var(--accent);box-shadow:0 0 0 4px rgba(56,189,248,.12);background:rgba(56,189,248,.05)}.game-date{color:var(--accent);font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums slashed-zero}.game-title{font-size:15px;font-weight:900;line-height:1.3}.game-meta{margin-top:auto;color:var(--soft);font-size:12px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}.game-mini{color:var(--green);font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums slashed-zero}.game-mini.past{color:var(--soft)}
     @media(max-width:620px){body{padding:14px 10px}.app{width:100%}.hero{padding:24px 16px}.games{padding:20px 14px}.game-list{grid-template-columns:1fr}.alert-toggle{min-height:72px}.open-link{min-height:60px;font-size:16px}}
@@ -52,9 +52,9 @@
               <span class="alert-sub" id="alertSub">T-5분 / T-1분 / 정각에 비프음</span>
             </span>
           </button>
-          <a class="open-link" href="https://m.ticketlink.co.kr/sports/137/57" target="_blank" rel="noopener noreferrer">
-            티켓링크 일정 페이지 열기 ↗
-          </a>
+          <button class="open-link" id="bookBtn" type="button" disabled>
+            <span id="bookBtnText">경기를 선택하세요</span>
+          </button>
         </div>
       </section>
       <section class="games">
@@ -107,6 +107,8 @@
         alertSub: $('alertSub'),
         gameList: $('gameList'),
         status: $('status'),
+        bookBtn: $('bookBtn'),
+        bookBtnText: $('bookBtnText'),
         tierBtns: [...document.querySelectorAll('.tier-btn')],
       };
 
@@ -126,6 +128,8 @@
         lastDiff: null,
         lastRenderedSec: -1,
         lastLocalSyncAt: 0,
+        bookMode: null,
+        bookOpened: false,
       };
 
       const ALERT_THRESHOLDS = [
@@ -251,6 +255,7 @@
         state.selectedId = id;
         state.firedAlerts = new Set();
         state.lastDiff = null;
+        state.bookOpened = false;
         const game = state.games.find((g) => g.id === id);
         els.selectedGame.textContent = game ? gameTitle(game) + (game.venueName ? ` · ${game.venueName.trim()}` : '') : '경기를 선택하세요';
         [...els.gameList.querySelectorAll('.game-btn')].forEach((btn) => btn.classList.toggle('selected', btn.dataset.gameId === id));
@@ -360,6 +365,25 @@
         }
         state.lastDiff = diff;
       }
+      // 예매 연결 버튼 상태. 선택 경기가 오픈 전이면 잠그고,
+      // 서버 시각 기준 오픈 순간(카운트다운 diff<=0)에 자동 활성화한다.
+      function setBookButton(mode) {
+        if (state.bookMode === mode) return;
+        state.bookMode = mode;
+        const btn = els.bookBtn;
+        if (mode === 'live') {
+          btn.disabled = false;
+          btn.classList.add('live');
+          els.bookBtnText.textContent = '티켓링크 일정 페이지 열기 ↗';
+        } else {
+          btn.disabled = true;
+          btn.classList.remove('live');
+          els.bookBtnText.textContent =
+            mode === 'done' ? '티켓링크 페이지를 열었습니다 ✓'
+              : mode === 'waiting' ? '예매 오픈 시 자동 활성화'
+                : '경기를 선택하세요';
+        }
+      }
       function render(timestamp) {
         if (timestamp - state.lastLocalSyncAt >= 2000) { resyncLocalClock(); state.lastLocalSyncAt = timestamp; }
         const now = correctedNow();
@@ -372,9 +396,11 @@
           els.countdown.textContent = diff > 0 ? formatDuration(diff) : '00:00:00.000';
           els.countdown.classList.toggle('idle', false);
           checkAlerts(diff);
+          if (!state.bookOpened) setBookButton(diff <= 0 ? 'live' : 'waiting');
         } else {
           els.countdown.textContent = '--:--:--.---';
           els.countdown.classList.add('idle');
+          if (!state.bookOpened) setBookButton('idle');
         }
 
         // mini countdowns (초당 1회만 갱신) — 현재 등급의 effective open 기준
@@ -402,6 +428,11 @@
       els.alertToggle.addEventListener('click', async () => {
         if (audio.armed) audio.disable(); else await audio.enable();
         updateAlertToggleUI();
+      });
+      els.bookBtn.addEventListener('click', () => {
+        window.open(TICKETLINK_URL, '_blank', 'noopener,noreferrer');
+        state.bookOpened = true;
+        setBookButton('done');
       });
       for (const btn of els.tierBtns) {
         btn.addEventListener('click', () => applyTier(btn.dataset.tier));
