@@ -24,21 +24,15 @@ https://m.ticketlink.co.kr/reserve/product/{productId}?scheduleId={scheduleId}
 
 ---
 
-## 2. 작업 브랜치 규칙
+## 2. 브랜치 규칙
 
-현재 작업 브랜치:
-
-```txt
-claude/fix-bot-detection-vuHxc
-```
-
-- 모든 개발/커밋/푸시는 이 브랜치에서만 수행
-- `main` 에 직접 push 금지
+- 기본적으로 `main` 에서 직접 작업/커밋/푸시해도 된다 (사용자 승인, 2026-10)
+- 별도 작업 브랜치는 필요할 때만 사용하고, 끝나면 `main` 에 병합한다
 - PR은 사용자가 명시적으로 요청할 때만 생성
 - 네트워크 오류 시 push 재시도: 2초/4초/8초/16초 지수 백오프
 
 ```powershell
-git push -u origin claude/fix-bot-detection-vuHxc
+git push -u origin main
 ```
 
 ---
@@ -229,7 +223,14 @@ UI 작업 시: `booking-data.json` 이 비었거나 일부 필드가 없을 때�
 
 ---
 
-## 13. 현재 최우선 과제
+## 13. 현재 상태 및 과제
+
+**2026-10 기준: 사용자는 이 레포(야구 예매)를 실사용하지 않는다.** 야구 예매에 실효성이 낮다는 판단.
+후속 방향으로 NOL·인터파크 등 콘서트 예매용 "범용 공연 모드"(서버 시계 동기화 + 수동 입력 오픈 시각 + 알림)가 논의됨.
+재사용 가능: `api/time.js` 의 Date 헤더 동기화, 카운트다운/알림 UI. 재사용 불가: NetLog 파서·스크래퍼(티켓링크 전용).
+주의: 대기열이 있는 사이트는 예매 페이지 직접 링크가 막힐 가능성이 높음(추정). 상품 페이지를 미리 열어두는 방식을 안내할 것.
+
+### (보류) 기존 최우선 과제
 
 ```txt
 scripts/parse-netlog.js 가 실제 Chrome NetLog 파일에서 동작하는지 검증
@@ -250,7 +251,7 @@ git log --oneline -5
 node -v
 ```
 
-현재 브랜치가 `claude/fix-bot-detection-vuHxc` 인지 확인. 변경 중인 파일이 있으면 덮어쓰지 않고 먼저 처리한다.
+변경 중인 파일이 있으면 덮어쓰지 않고 먼저 처리한다.
 
 ---
 
